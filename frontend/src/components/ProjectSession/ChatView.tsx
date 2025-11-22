@@ -93,11 +93,9 @@ export default function ChatView({ session }: ChatViewProps) {
 
         case 'error':
           console.error('WebSocket error:', message.content);
-          console.log('Setting error state:', message.content);
           setError(message.content || 'An unknown error occurred');
           setStreaming(false);
           clearStreamingMessage();
-          console.log('Error state set, streaming stopped');
           break;
 
         case 'user_message_saved':
@@ -128,26 +126,10 @@ export default function ChatView({ session }: ChatViewProps) {
 
   const messages = messagesData?.messages || [];
 
-  // Debug logging
-  if (error) {
-    console.log('[ChatView] Rendering with error:', error);
-  }
-
   return (
     <div className="chat-view">
       <div className="chat-header">
         <h2>{session.name}</h2>
-        {/* Test button to verify error banner works */}
-        <button
-          onClick={() => {
-            console.log('[TEST] Manually triggering error');
-            setError('TEST ERROR: This is a manually triggered error to test the error banner');
-            setStreaming(false);
-          }}
-          style={{ marginLeft: '10px', padding: '5px 10px', fontSize: '12px', backgroundColor: '#ff6b6b', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
-        >
-          Test Error Banner
-        </button>
       </div>
 
       <SandboxControls sessionId={session.id} />
@@ -160,43 +142,20 @@ export default function ChatView({ session }: ChatViewProps) {
       />
 
       {error && (
-        <div
-          className="chat-error-banner"
-          style={{
-            position: 'fixed',
-            top: '100px',
-            left: '50%',
-            transform: 'translateX(-50%)',
-            zIndex: 9999,
-            minWidth: '400px',
-            backgroundColor: '#ff0000',
-            border: '5px solid yellow',
-            padding: '20px'
-          }}
-        >
+        <div className="chat-error-banner">
           <div className="error-content">
             <span className="error-icon">⚠️</span>
-            <div className="error-message" style={{ color: '#ffffff', fontSize: '16px', fontWeight: 'bold' }}>
-              {error}
-            </div>
+            <div className="error-message">{error}</div>
             <button
               className="error-close-btn"
               onClick={clearError}
               aria-label="Close error"
-              style={{ fontSize: '30px', color: '#ffffff' }}
             >
               ×
             </button>
           </div>
         </div>
       )}
-
-      {/* Debug info */}
-      <div style={{ position: 'fixed', top: '10px', right: '10px', background: 'black', color: 'lime', padding: '10px', zIndex: 10000, fontSize: '12px', fontFamily: 'monospace' }}>
-        ERROR STATE: {error ? 'YES' : 'NO'}<br/>
-        ERROR VALUE: {error || 'null'}<br/>
-        STREAMING: {isStreaming ? 'YES' : 'NO'}
-      </div>
 
       <MessageInput
         onSend={handleSendMessage}

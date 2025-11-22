@@ -32,22 +32,12 @@ export class ChatWebSocket {
 
     this.ws.onmessage = (event) => {
       try {
-        console.log('[WS] Raw message received:', event.data);
         const message: ChatMessage = JSON.parse(event.data);
-        console.log('[WS] Parsed message:', message);
-        console.log('[WS] Message type:', message.type);
-        if (message.type === 'error') {
-          console.log('[WS] ERROR MESSAGE RECEIVED:', message.content);
-        }
         if (this.onMessageCallback) {
-          console.log('[WS] Calling onMessageCallback with:', message);
           this.onMessageCallback(message);
-        } else {
-          console.warn('[WS] No onMessageCallback set!');
         }
       } catch (error) {
         console.error('Failed to parse WebSocket message:', error);
-        console.error('Raw data was:', event.data);
       }
     };
 

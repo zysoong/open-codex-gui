@@ -86,6 +86,7 @@ const LLM_PROVIDERS = [
 export default function AgentConfigPanel({ projectId }: AgentConfigPanelProps) {
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<'general' | 'tools' | 'instructions' | 'templates'>('general');
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   // Local state for form
   const [formData, setFormData] = useState<Partial<AgentConfig>>({});
@@ -269,48 +270,63 @@ export default function AgentConfigPanel({ projectId }: AgentConfigPanelProps) {
               </select>
             </div>
 
-            {/* LLM Settings */}
-            <div className="form-section">
-              <label className="section-label">Temperature</label>
-              <div className="slider-container">
-                <input
-                  type="range"
-                  min="0"
-                  max="1"
-                  step="0.1"
-                  value={formData.llm_config?.temperature || 0.7}
-                  onChange={(e) => handleFieldChange('llm_config', {
-                    ...formData.llm_config,
-                    temperature: parseFloat(e.target.value)
-                  })}
-                  className="slider"
-                />
-                <span className="slider-value">
-                  {formData.llm_config?.temperature || 0.7}
-                </span>
-              </div>
-              <p className="field-description">
-                Lower values make output more focused, higher values more creative
-              </p>
-            </div>
+            {/* Advanced Settings (Collapsible) */}
+            <div className="form-section advanced-section">
+              <button
+                type="button"
+                className="advanced-toggle"
+                onClick={() => setShowAdvanced(!showAdvanced)}
+              >
+                <span>{showAdvanced ? '▼' : '▶'}</span>
+                Advanced Settings
+              </button>
 
-            <div className="form-section">
-              <label className="section-label">Max Tokens</label>
-              <input
-                type="number"
-                className="text-input"
-                value={formData.llm_config?.max_tokens || 4096}
-                onChange={(e) => handleFieldChange('llm_config', {
-                  ...formData.llm_config,
-                  max_tokens: parseInt(e.target.value)
-                })}
-                min="256"
-                max="8192"
-                step="256"
-              />
-              <p className="field-description">
-                Maximum response length (higher values = longer responses)
-              </p>
+              {showAdvanced && (
+                <div className="advanced-content">
+                  <div className="form-section">
+                    <label className="section-label">Temperature</label>
+                    <div className="slider-container">
+                      <input
+                        type="range"
+                        min="0"
+                        max="1"
+                        step="0.1"
+                        value={formData.llm_config?.temperature ?? 1.0}
+                        onChange={(e) => handleFieldChange('llm_config', {
+                          ...formData.llm_config,
+                          temperature: parseFloat(e.target.value)
+                        })}
+                        className="slider"
+                      />
+                      <span className="slider-value">
+                        {formData.llm_config?.temperature ?? 1.0}
+                      </span>
+                    </div>
+                    <p className="field-description">
+                      Lower values make output more focused, higher values more creative. Default: 1.0
+                    </p>
+                  </div>
+
+                  <div className="form-section">
+                    <label className="section-label">Max Tokens</label>
+                    <input
+                      type="number"
+                      className="text-input"
+                      value={formData.llm_config?.max_tokens ?? 8192}
+                      onChange={(e) => handleFieldChange('llm_config', {
+                        ...formData.llm_config,
+                        max_tokens: parseInt(e.target.value)
+                      })}
+                      min="256"
+                      max="200000"
+                      step="256"
+                    />
+                    <p className="field-description">
+                      Maximum response length (higher values = longer responses). Default: 8192
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}
