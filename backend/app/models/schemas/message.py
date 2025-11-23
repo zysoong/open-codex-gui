@@ -26,6 +26,7 @@ class AgentActionResponse(BaseModel):
     action_input: Dict[str, Any]
     action_output: Dict[str, Any] | None
     status: AgentActionStatus
+    action_metadata: Dict[str, Any] | None = None
     created_at: datetime
 
     class Config:

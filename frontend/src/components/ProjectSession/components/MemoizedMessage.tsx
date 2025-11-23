@@ -146,7 +146,7 @@ export const MemoizedMessage = memo(
                                 </span>
                                 <strong>Result</strong>
                               </div>
-                              <ObservationContent content={action.action_output} metadata={action.metadata} />
+                              <ObservationContent content={action.action_output} metadata={action.action_metadata} />
                             </div>
                           )}
                         </div>

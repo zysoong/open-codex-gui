@@ -550,7 +550,7 @@ class ChatWebSocketHandler:
                             "result": observation,
                             "success": success
                         }
-                        current_action.metadata = metadata
+                        current_action.action_metadata = metadata
                         current_action.status = "success" if success else "error"
                         await self.db.commit()
                         chunks_since_commit = 0  # Reset counter after action commit
