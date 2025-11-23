@@ -1,19 +1,15 @@
-import { useEffect, useRef, useMemo, useCallback, memo, useState } from 'react';
+import { useEffect, useRef, useState, useCallback, memo, useMemo, Profiler } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { chatSessionsAPI, messagesAPI } from '@/services/api';
-import { useStreamingManager } from './hooks/useStreamingManager';
-import { MessageInput } from './components/MessageInput';
+import { useChatStore } from '@/stores/chatStore';
 import './ChatSessionPage.css';
 
-// ============================================================================
-// HELPER COMPONENTS & FUNCTIONS (Keep existing ones)
-// ============================================================================
-
+// Custom code component with syntax highlighting
 const CodeBlock = ({ inline, className, children, ...props }: any) => {
   const match = /language-(\w+)/.exec(className || '');
   const language = match ? match[1] : '';
@@ -40,42 +36,55 @@ const CodeBlock = ({ inline, className, children, ...props }: any) => {
   );
 };
 
+// Helper function to format observation content
 const formatObservationContent = (content: string | any): string => {
   let dataToFormat = content;
 
+  // If content is already an object, use it directly
   if (typeof content === 'object' && content !== null) {
     dataToFormat = content;
   } else if (typeof content === 'string') {
+    // Try to parse as JSON
     try {
       dataToFormat = JSON.parse(content);
     } catch {
+      // If not JSON, just use the string as-is
+      // Replace escaped newlines with actual newlines
       return content.replace(/\\n/g, '\n');
     }
   }
 
+  // If we have a parsed object, extract the result/output field
   if (typeof dataToFormat === 'object' && dataToFormat !== null) {
+    // Try common result field names
     const resultValue = dataToFormat.result || dataToFormat.output || dataToFormat.data || dataToFormat;
 
+    // If the result is a string, format it
     if (typeof resultValue === 'string') {
       return resultValue.replace(/\\n/g, '\n');
     }
 
+    // If it's still an object, stringify it nicely
     return JSON.stringify(resultValue, null, 2);
   }
 
   return String(dataToFormat);
 };
 
+// Helper function to pretty print action arguments
 const formatActionArgs = (args: string | any): string => {
+  // If args is already an object, stringify it
   if (typeof args === 'object' && args !== null) {
     return JSON.stringify(args, null, 2);
   }
 
+  // If args is a string, try to parse and re-stringify
   if (typeof args === 'string') {
     try {
       const parsed = JSON.parse(args);
       return JSON.stringify(parsed, null, 2);
     } catch {
+      // If not valid JSON, return as-is
       return args;
     }
   }
@@ -83,27 +92,54 @@ const formatActionArgs = (args: string | any): string => {
   return String(args);
 };
 
+// Helper to get file extension from path
 const getFileExtension = (filePath: string): string => {
   const match = filePath.match(/\.([^.]+)$/);
   return match ? match[1].toLowerCase() : '';
 };
 
+// Helper to get language from file extension for syntax highlighting
 const getLanguageFromExtension = (ext: string): string => {
   const langMap: { [key: string]: string } = {
-    'js': 'javascript', 'jsx': 'javascript', 'ts': 'typescript', 'tsx': 'typescript',
-    'py': 'python', 'rb': 'ruby', 'java': 'java', 'cpp': 'cpp', 'c': 'c',
-    'cs': 'csharp', 'go': 'go', 'rs': 'rust', 'php': 'php', 'swift': 'swift',
-    'kt': 'kotlin', 'scala': 'scala', 'sh': 'bash', 'bash': 'bash', 'zsh': 'bash',
-    'yml': 'yaml', 'yaml': 'yaml', 'json': 'json', 'xml': 'xml', 'html': 'html',
-    'css': 'css', 'scss': 'scss', 'sass': 'sass', 'sql': 'sql',
-    'md': 'markdown', 'markdown': 'markdown',
+    'js': 'javascript',
+    'jsx': 'javascript',
+    'ts': 'typescript',
+    'tsx': 'typescript',
+    'py': 'python',
+    'rb': 'ruby',
+    'java': 'java',
+    'cpp': 'cpp',
+    'c': 'c',
+    'cs': 'csharp',
+    'go': 'go',
+    'rs': 'rust',
+    'php': 'php',
+    'swift': 'swift',
+    'kt': 'kotlin',
+    'scala': 'scala',
+    'sh': 'bash',
+    'bash': 'bash',
+    'zsh': 'bash',
+    'yml': 'yaml',
+    'yaml': 'yaml',
+    'json': 'json',
+    'xml': 'xml',
+    'html': 'html',
+    'css': 'css',
+    'scss': 'scss',
+    'sass': 'sass',
+    'sql': 'sql',
+    'md': 'markdown',
+    'markdown': 'markdown',
   };
   return langMap[ext] || ext;
 };
 
+// Component to render file write action arguments
 const FileWriteActionArgs = ({ args }: { args: any }) => {
   let parsedArgs = args;
 
+  // Parse if string
   if (typeof args === 'string') {
     try {
       parsedArgs = JSON.parse(args);
@@ -112,6 +148,7 @@ const FileWriteActionArgs = ({ args }: { args: any }) => {
     }
   }
 
+  // Extract file_path and content
   const filePath = parsedArgs.file_path || parsedArgs.path || parsedArgs.filename;
   const content = parsedArgs.content || parsedArgs.data;
 
@@ -121,6 +158,7 @@ const FileWriteActionArgs = ({ args }: { args: any }) => {
 
   const ext = getFileExtension(filePath);
 
+  // Check if it's an image
   if (['jpg', 'jpeg', 'png', 'gif', 'svg', 'webp', 'bmp'].includes(ext)) {
     return (
       <div className="action-args">
@@ -134,6 +172,7 @@ const FileWriteActionArgs = ({ args }: { args: any }) => {
     );
   }
 
+  // Check if it's markdown
   if (['md', 'markdown'].includes(ext)) {
     return (
       <div className="action-args">
@@ -155,6 +194,7 @@ const FileWriteActionArgs = ({ args }: { args: any }) => {
     );
   }
 
+  // For code files, show with syntax highlighting
   const language = getLanguageFromExtension(ext);
 
   return (
@@ -178,10 +218,7 @@ const FileWriteActionArgs = ({ args }: { args: any }) => {
   );
 };
 
-// ============================================================================
-// MESSAGE LIST COMPONENT (Optimized)
-// ============================================================================
-
+// Memoized message list to prevent re-renders when input changes
 const MessagesList = memo(({
   visibleMessages,
   messages,
@@ -189,6 +226,8 @@ const MessagesList = memo(({
   streamEvents,
   hasHiddenMessages,
   setVisibleMessageCount,
+  formatActionArgs,
+  formatObservationContent,
   renderStreamEvent
 }: any) => {
   return (
@@ -212,6 +251,7 @@ const MessagesList = memo(({
         </div>
       )}
       {visibleMessages.map((message: any, visibleIndex: number) => {
+        // Calculate actual index in full messages array
         const startIndex = Math.max(0, messages.length - visibleMessageCount);
         const actualIndex = startIndex + visibleIndex;
         const isLastMessage = actualIndex === messages.length - 1;
@@ -385,61 +425,79 @@ const MessagesList = memo(({
 
 MessagesList.displayName = 'MessagesList';
 
-// ============================================================================
-// MAIN CHAT SESSION PAGE (Redesigned)
-// ============================================================================
-
 export default function ChatSessionPage() {
   const { projectId, sessionId } = useParams<{ projectId: string; sessionId: string }>();
   const navigate = useNavigate();
-  const [visibleMessageCount, setVisibleMessageCount] = useState(50);
+  const {
+    agentActions,
+    addAgentAction,
+    clearAgentActions,
+    streamEvents,
+    addStreamEvent,
+    clearStreamEvents
+  } = useChatStore();
+  const [input, setInput] = useState('');
+  const [isSending, setIsSending] = useState(false);
+  const [messages, setMessages] = useState<any[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [visibleMessageCount, setVisibleMessageCount] = useState(50); // Show last 50 messages
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const wsRef = useRef<WebSocket | null>(null);
+  const queryClient = useQueryClient();
 
-  // Fetch session metadata
+  // Fetch session
   const { data: session } = useQuery({
     queryKey: ['chatSession', sessionId],
     queryFn: () => chatSessionsAPI.get(sessionId!),
     enabled: !!sessionId,
   });
 
-  // Fetch messages from API (optimized)
-  const { data: messagesData } = useQuery({
+  // Fetch messages
+  const { data: messagesData, refetch: refetchMessages } = useQuery({
     queryKey: ['messages', sessionId],
     queryFn: () => messagesAPI.list(sessionId!),
     enabled: !!sessionId,
-    staleTime: 5 * 60 * 1000,        // 5 minutes
-    cacheTime: 10 * 60 * 1000,       // 10 minutes
-    refetchOnWindowFocus: false,     // Prevent black screen on tab switch
-    refetchOnReconnect: false,
+    staleTime: 0, // Always refetch on mount
+    cacheTime: 0, // Don't cache
   });
 
-  // Use streaming manager hook (encapsulates all WebSocket logic)
-  const {
-    messages,
-    streamEvents,
-    isStreaming,
-    error,
-    sendMessage,
-    cancelStream,
-    clearError,
-  } = useStreamingManager({
-    sessionId,
-    initialMessages: messagesData?.messages || [],
-  });
+  // Load messages from API
+  useEffect(() => {
+    if (messagesData?.messages) {
+      setMessages(messagesData.messages);
+    }
+  }, [messagesData]);
 
-  // Handle pending message from sessionStorage (quick start feature)
+  // Check for pending message from quick start
   useEffect(() => {
     const pendingMessage = sessionStorage.getItem('pendingMessage');
-    if (pendingMessage && sessionId) {
+    if (pendingMessage && sessionId && wsRef.current) {
       sessionStorage.removeItem('pendingMessage');
-
+      // Send it automatically after WebSocket is ready
       setTimeout(() => {
-        sendMessage(pendingMessage);
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+          setIsSending(true);
+
+          const userMsg = {
+            id: 'temp-user-' + Date.now(),
+            role: 'user' as const,
+            content: pendingMessage,
+            created_at: new Date().toISOString(),
+          };
+          setMessages((prev) => [...prev, userMsg]);
+
+          wsRef.current.send(
+            JSON.stringify({
+              type: 'message',
+              content: pendingMessage,
+            })
+          );
+        }
       }, 500);
     }
-  }, [sessionId, sendMessage]);
+  }, [sessionId, wsRef.current]);
 
-  // Compute visible messages
+  // Compute visible messages (only render last N messages for performance)
   const visibleMessages = useMemo(() => {
     if (!messages || messages.length === 0) return [];
     const startIndex = Math.max(0, messages.length - visibleMessageCount);
@@ -448,14 +506,14 @@ export default function ChatSessionPage() {
 
   const hasHiddenMessages = messages.length > visibleMessageCount;
 
-  // Auto-scroll to bottom when message count changes
+  // Auto-scroll to bottom only when sending (not on every stream event)
   useEffect(() => {
-    if (isStreaming) {
+    if (isSending) {
       messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
     }
-  }, [messages.length, isStreaming]);
+  }, [messages.length]); // Only when message count changes
 
-  // Memoized renderStreamEvent
+  // Memoized renderStreamEvent to prevent re-renders
   const renderStreamEvent = useCallback((event: any, index: number) => {
     switch (event.type) {
       case 'chunk':
@@ -481,6 +539,7 @@ export default function ChatSessionPage() {
         );
 
       case 'action':
+        // Check if this is a file write action
         const isFileWrite = event.tool && (
           event.tool.toLowerCase().includes('file_write') ||
           event.tool.toLowerCase().includes('write_file') ||
@@ -519,7 +578,167 @@ export default function ChatSessionPage() {
       default:
         return null;
     }
-  }, []);
+  }, []); // No dependencies since formatActionArgs and formatObservationContent are stable
+
+  // WebSocket connection
+  useEffect(() => {
+    if (!sessionId) return;
+
+    const ws = new WebSocket(`ws://127.0.0.1:8000/api/v1/chats/${sessionId}/stream`);
+    wsRef.current = ws;
+
+    ws.onopen = () => {
+      console.log('WebSocket connected');
+    };
+
+    ws.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+
+      if (data.type === 'start') {
+        setIsSending(true); // Enable stop button
+        clearAgentActions();
+        clearStreamEvents(); // Clear unified stream
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: 'temp-' + Date.now(),
+            role: 'assistant',
+            content: '',
+            created_at: new Date().toISOString(),
+          },
+        ]);
+      } else if (data.type === 'cancelled') {
+        setIsSending(false);
+      } else if (data.type === 'thought') {
+        const thought = {
+          type: 'thought' as const,
+          content: data.content,
+          step: data.step,
+        };
+        addAgentAction(thought);
+        addStreamEvent(thought);
+      } else if (data.type === 'action_streaming') {
+        const streamingAction = {
+          type: 'action_streaming' as const,
+          content: `Preparing ${data.tool}...`,
+          tool: data.tool,
+          status: data.status,
+          step: data.step,
+        };
+        addAgentAction(streamingAction);
+        addStreamEvent(streamingAction);
+      } else if (data.type === 'action_args_chunk') {
+        const argsChunk = {
+          type: 'action_args_chunk' as const,
+          content: data.partial_args || '',
+          tool: data.tool,
+          partial_args: data.partial_args,
+          step: data.step,
+        };
+        addAgentAction(argsChunk);
+        addStreamEvent(argsChunk);
+      } else if (data.type === 'action') {
+        const action = {
+          type: 'action' as const,
+          content: `Using tool: ${data.tool}`,
+          tool: data.tool,
+          args: data.args,
+          step: data.step,
+        };
+        addAgentAction(action);
+        addStreamEvent(action);
+      } else if (data.type === 'observation') {
+        const observation = {
+          type: 'observation' as const,
+          content: data.content,
+          success: data.success,
+          step: data.step,
+        };
+        addAgentAction(observation);
+        addStreamEvent(observation);
+      } else if (data.type === 'chunk') {
+        // Add chunk to unified stream
+        addStreamEvent({
+          type: 'chunk',
+          content: data.content,
+        });
+        // Update the last message with new content
+        setMessages((prev) => {
+          const newMessages = [...prev];
+          const lastMsg = newMessages[newMessages.length - 1];
+          if (lastMsg && lastMsg.role === 'assistant') {
+            lastMsg.content += data.content;
+          }
+          return newMessages;
+        });
+      } else if (data.type === 'end') {
+        setIsSending(false);
+        // Clear stream events
+        clearStreamEvents();
+        // Invalidate and refetch messages immediately
+        queryClient.invalidateQueries({ queryKey: ['messages', sessionId] });
+      } else if (data.type === 'error') {
+        console.error('WebSocket error:', data.content);
+        setError(data.content || 'An error occurred');
+        setIsSending(false);
+      }
+    };
+
+    ws.onerror = (error) => {
+      console.error('WebSocket error:', error);
+      setIsSending(false);
+    };
+
+    ws.onclose = () => {
+      console.log('WebSocket closed');
+      setIsSending(false);
+    };
+
+    return () => {
+      console.log('[ChatSessionPage] Cleaning up WebSocket');
+      ws.close();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId]); // Only sessionId - store functions are stable
+
+  const handleSend = async (messageText?: string) => {
+    const textToSend = messageText || input;
+    if (!textToSend.trim() || isSending || !wsRef.current) return;
+
+    setError(null); // Clear any previous errors
+    setInput('');
+
+    // Add user message to UI
+    const userMsg = {
+      id: 'temp-user-' + Date.now(),
+      role: 'user' as const,
+      content: textToSend,
+      created_at: new Date().toISOString(),
+    };
+    setMessages((prev) => [...prev, userMsg]);
+
+    // Send via WebSocket (isSending will be set to true when 'start' event is received)
+    wsRef.current.send(
+      JSON.stringify({
+        type: 'message',
+        content: textToSend,
+      })
+    );
+  };
+
+  const handleCancel = () => {
+    console.log('[ChatSessionPage] Cancel button clicked');
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'cancel' }));
+    }
+  };
+
+  const handleKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
+    }
+  };
 
   return (
     <div className="chat-session-page">
@@ -555,6 +774,8 @@ export default function ChatSessionPage() {
               streamEvents={streamEvents}
               hasHiddenMessages={hasHiddenMessages}
               setVisibleMessageCount={setVisibleMessageCount}
+              formatActionArgs={formatActionArgs}
+              formatObservationContent={formatObservationContent}
               renderStreamEvent={renderStreamEvent}
             />
           )}
@@ -570,7 +791,7 @@ export default function ChatSessionPage() {
             <div className="error-message">{error}</div>
             <button
               className="error-close-btn"
-              onClick={clearError}
+              onClick={() => setError(null)}
               aria-label="Close error"
             >
               ×
@@ -579,12 +800,40 @@ export default function ChatSessionPage() {
         </div>
       )}
 
-      {/* Message Input (Isolated Component) */}
-      <MessageInput
-        onSend={sendMessage}
-        onCancel={cancelStream}
-        isStreaming={isStreaming}
-      />
+      {/* Input */}
+      <div className="chat-input-container">
+        <div className="chat-input-wrapper">
+          <textarea
+            className="chat-input"
+            placeholder="Type your message..."
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyPress={handleKeyPress}
+            rows={1}
+            disabled={isSending}
+          />
+          <button
+            className={`send-btn ${isSending ? 'stop-btn' : ''}`}
+            onClick={isSending ? handleCancel : () => handleSend()}
+            disabled={isSending ? false : !input.trim()}
+            title={isSending ? 'Stop generating' : 'Send message'}
+          >
+            {isSending ? (
+              'Stop'
+            ) : (
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                <path
+                  d="M22 2L11 13M22 2L15 22L11 13M22 2L2 9L11 13"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            )}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
