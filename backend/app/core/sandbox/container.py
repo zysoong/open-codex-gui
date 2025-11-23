@@ -196,8 +196,12 @@ class SandboxContainer:
             return await asyncio.to_thread(_read)
 
         except Exception as e:
+            import traceback
+            error_details = traceback.format_exc()
             print(f"Error reading file: {e}")
-            return None
+            print(f"Full traceback:\n{error_details}")
+            # Return error as string so FileReadTool can display it
+            raise Exception(f"Failed to read file: {str(e)}")
 
     def list_files(self, container_path: str = "/workspace") -> list[str]:
         """

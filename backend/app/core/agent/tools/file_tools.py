@@ -166,7 +166,7 @@ class FileReadTool(Tool):
                 return ToolResult(
                     success=False,
                     output="",
-                    error=f"Failed to read file: {path}",
+                    error=f"File not found or cannot be read: {path}. The file may not exist, or there was an error extracting it from the container.",
                     metadata={"path": path},
                 )
 
