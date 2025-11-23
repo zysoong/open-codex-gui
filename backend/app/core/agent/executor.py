@@ -40,7 +40,7 @@ class ReActAgent:
         self,
         llm_provider: LLMProvider,
         tool_registry: ToolRegistry,
-        max_iterations: int = 10,
+        max_iterations: int = 30,
         system_instructions: str | None = None,
         max_validation_retries: int = 3,
         max_same_tool_retries: int = 5,
