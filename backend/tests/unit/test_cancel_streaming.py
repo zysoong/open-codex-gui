@@ -24,6 +24,10 @@ class MockTool:
             output="Tool completed"
         )
 
+    async def validate_and_execute(self, **kwargs) -> ToolResult:
+        """Default implementation that just calls execute."""
+        return await self.execute(**kwargs)
+
     def format_for_llm(self):
         """Return tool in LLM function calling format."""
         return {
@@ -52,8 +56,8 @@ async def test_agent_can_be_cancelled_during_tool_execution():
 
     async def mock_generate_stream(*args, **kwargs):
         """Simulate LLM calling slow_tool."""
-        yield {"function_call": {"name": "slow_tool", "arguments": ""}}
-        yield {"function_call": {"name": None, "arguments": "{}"}}
+        yield {"function_call": {"name": "slow_tool", "arguments": ""}, "index": 0}
+        yield {"function_call": {"name": None, "arguments": "{}"}, "index": 0}
 
     mock_llm.generate_stream = mock_generate_stream
 

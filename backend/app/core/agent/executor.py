@@ -150,9 +150,8 @@ Available tools will be provided as function calling options. Use them to accomp
 
                 # Stream response from LLM
                 full_response = ""
-                function_call = None
-                function_name = None
-                function_args = ""
+                # Support multiple tool calls - track by index
+                tool_calls = {}  # {index: {"name": str, "arguments": str}}
 
                 print(f"[REACT AGENT] Calling LLM generate_stream...")
                 chunk_count = 0
@@ -187,140 +186,168 @@ Available tools will be provided as function calling options. Use them to accomp
                     elif isinstance(chunk, dict) and "function_call" in chunk:
                         print(f"[REACT AGENT] Function call chunk: {chunk}")
                         function_call = chunk["function_call"]
+                        # Get index (default to 0 for backward compatibility with single tool calls)
+                        index = chunk.get("index", 0)
+
+                        # Initialize tool call entry if needed
+                        if index not in tool_calls:
+                            tool_calls[index] = {"name": None, "arguments": ""}
+
                         # IMPORTANT: Only set function_name if it's not None (preserve from first chunk)
                         if function_call.get("name") is not None:
-                            function_name = function_call.get("name")
-                        # Accumulate arguments from all chunks
+                            tool_calls[index]["name"] = function_call.get("name")
+                        # Accumulate arguments from all chunks for this specific tool call index
                         if function_call.get("arguments"):
-                            function_args += function_call.get("arguments", "")
+                            tool_calls[index]["arguments"] += function_call.get("arguments", "")
 
                 print(f"[REACT AGENT] Stream complete. Total chunks: {chunk_count}")
                 print(f"[REACT AGENT] Full response length: {len(full_response)}")
-                print(f"[REACT AGENT] Function name: {function_name}")
+                print(f"[REACT AGENT] Tool calls: {list(tool_calls.keys())}")
 
-                # Check if LLM wants to call a function
-                if function_name and self.tools.has_tool(function_name):
-                    print(f"[REACT AGENT] Executing function: {function_name}")
+                # Check if LLM wants to call any functions
+                # ReAct pattern: Execute ONE tool per iteration (use first/lowest index)
+                if tool_calls:
+                    # Get the first tool call (lowest index)
+                    first_index = min(tool_calls.keys())
+                    tool_call = tool_calls[first_index]
+                    function_name = tool_call["name"]
+                    function_args = tool_call["arguments"]
 
-                    # Add assistant's function call to conversation for proper context
-                    # This is critical so the LLM remembers what it decided to do in previous iterations
-                    messages.append({
-                        "role": "assistant",
-                        "content": full_response or None,
-                        "function_call": {
-                            "name": function_name,
-                            "arguments": function_args if isinstance(function_args, str) else json.dumps(function_args)
-                        }
-                    })
+                    if len(tool_calls) > 1:
+                        print(f"[REACT AGENT] WARNING: LLM suggested {len(tool_calls)} tool calls, but ReAct pattern supports one per iteration. Executing first: {function_name}")
 
-                    # Note: reasoning text before function call was already emitted as chunks during streaming
+                    if function_name and self.tools.has_tool(function_name):
+                        print(f"[REACT AGENT] Executing function: {function_name}")
 
-                    # Parse function arguments
-                    try:
-                        args = json.loads(function_args) if isinstance(function_args, str) else function_args
-                    except json.JSONDecodeError:
-                        args = {}
+                        # Add assistant's function call to conversation for proper context
+                        # This is critical so the LLM remembers what it decided to do in previous iterations
+                        messages.append({
+                            "role": "assistant",
+                            "content": full_response or None,
+                            "function_call": {
+                                "name": function_name,
+                                "arguments": function_args if isinstance(function_args, str) else json.dumps(function_args)
+                            }
+                        })
 
-                    # Execute tool
-                    tool = self.tools.get(function_name)
-                    if tool:
-                        # Use validate_and_execute for parameter validation
-                        result = await tool.validate_and_execute(**args)
+                        # Note: reasoning text before function call was already emitted as chunks during streaming
 
-                        # Handle validation errors internally (don't show in frontend)
-                        if result.is_validation_error:
-                            print(f"[REACT AGENT] Validation error for {function_name}: {result.error}")
+                        # Parse function arguments
+                        try:
+                            args = json.loads(function_args) if isinstance(function_args, str) else function_args
+                        except json.JSONDecodeError:
+                            args = {}
 
-                            # Track validation retries
-                            self.validation_retry_count += 1
+                        # Execute tool
+                        tool = self.tools.get(function_name)
+                        if tool:
+                            # Use validate_and_execute for parameter validation
+                            result = await tool.validate_and_execute(**args)
 
-                            # Check if we've exceeded retry limit
-                            if self.validation_retry_count >= self.max_validation_retries:
-                                # Max retries exceeded - add suggestion to try different approach
-                                error_with_suggestion = (
-                                    f"{result.error}\n\n"
-                                    f"You've attempted this {self.validation_retry_count} times with validation errors. "
-                                    f"Consider:\n"
-                                    f"1. Using a different tool to accomplish the task\n"
-                                    f"2. Breaking the task into smaller steps\n"
-                                    f"3. Carefully reviewing the tool's parameter requirements"
+                            # Handle validation errors internally (don't show in frontend)
+                            if result.is_validation_error:
+                                print(f"[REACT AGENT] Validation error for {function_name}: {result.error}")
+
+                                # Track validation retries
+                                self.validation_retry_count += 1
+
+                                # Check if we've exceeded retry limit
+                                if self.validation_retry_count >= self.max_validation_retries:
+                                    # Max retries exceeded - add suggestion to try different approach
+                                    error_with_suggestion = (
+                                        f"{result.error}\n\n"
+                                        f"You've attempted this {self.validation_retry_count} times with validation errors. "
+                                        f"Consider:\n"
+                                        f"1. Using a different tool to accomplish the task\n"
+                                        f"2. Breaking the task into smaller steps\n"
+                                        f"3. Carefully reviewing the tool's parameter requirements"
+                                    )
+                                    messages.append({
+                                        "role": "user",
+                                        "content": f"Tool '{function_name}' validation failed: {error_with_suggestion}",
+                                    })
+                                    # Reset counter for next tool
+                                    self.validation_retry_count = 0
+                                else:
+                                    # Add validation error to conversation for LLM to learn from
+                                    messages.append({
+                                        "role": "user",
+                                        "content": f"Tool '{function_name}' validation failed (attempt {self.validation_retry_count}/{self.max_validation_retries}): {result.error}",
+                                    })
+
+                                # Continue to next iteration (don't save as agent_action)
+                                continue
+
+                            # Reset validation retry counter on successful validation
+                            self.validation_retry_count = 0
+
+                            # Track tool call for loop detection
+                            self.tool_call_history.append(function_name)
+
+                            # Check for tool call loops (same tool failing repeatedly)
+                            recent_calls = self.tool_call_history[-self.max_same_tool_retries:]
+                            if len(recent_calls) == self.max_same_tool_retries and len(set(recent_calls)) == 1:
+                                # Same tool called max_same_tool_retries times in a row
+                                print(f"[REACT AGENT] Loop detected: {function_name} called {self.max_same_tool_retries} times")
+                                observation = (
+                                    f"Error: Tool '{function_name}' has been called {self.max_same_tool_retries} times "
+                                    f"consecutively without success. This suggests the current approach isn't working. "
+                                    f"Please try a different tool or approach to accomplish the task."
                                 )
                                 messages.append({
                                     "role": "user",
-                                    "content": f"Tool '{function_name}' validation failed: {error_with_suggestion}",
+                                    "content": observation,
                                 })
-                                # Reset counter for next tool
-                                self.validation_retry_count = 0
+                                # Clear history to allow trying again later if needed
+                                self.tool_call_history = []
+                                continue
+
+                            # Execution successful or execution error (not validation) - show in frontend
+                            yield {
+                                "type": "action",
+                                "content": f"Using tool: {function_name}",
+                                "tool": function_name,
+                                "args": args,
+                                "step": iteration + 1,
+                            }
+
+                            # Create observation
+                            # For failures, include BOTH error message AND output so LLM can see what went wrong
+                            if result.success:
+                                observation = result.output
                             else:
-                                # Add validation error to conversation for LLM to learn from
-                                messages.append({
-                                    "role": "user",
-                                    "content": f"Tool '{function_name}' validation failed (attempt {self.validation_retry_count}/{self.max_validation_retries}): {result.error}",
-                                })
+                                # Combine error message with output (stdout/stderr) for better context
+                                observation_parts = []
+                                if result.error:
+                                    observation_parts.append(f"Error: {result.error}")
+                                if result.output:
+                                    observation_parts.append(result.output)
+                                observation = "\n".join(observation_parts) if observation_parts else "Error: Unknown failure"
 
-                            # Continue to next iteration (don't save as agent_action)
-                            continue
+                            yield {
+                                "type": "observation",
+                                "content": observation,
+                                "success": result.success,
+                                "step": iteration + 1,
+                            }
 
-                        # Reset validation retry counter on successful validation
-                        self.validation_retry_count = 0
-
-                        # Track tool call for loop detection
-                        self.tool_call_history.append(function_name)
-
-                        # Check for tool call loops (same tool failing repeatedly)
-                        recent_calls = self.tool_call_history[-self.max_same_tool_retries:]
-                        if len(recent_calls) == self.max_same_tool_retries and len(set(recent_calls)) == 1:
-                            # Same tool called max_same_tool_retries times in a row
-                            print(f"[REACT AGENT] Loop detected: {function_name} called {self.max_same_tool_retries} times")
-                            observation = (
-                                f"Error: Tool '{function_name}' has been called {self.max_same_tool_retries} times "
-                                f"consecutively without success. This suggests the current approach isn't working. "
-                                f"Please try a different tool or approach to accomplish the task."
-                            )
+                            # Add tool result to conversation as user message
                             messages.append({
                                 "role": "user",
-                                "content": observation,
+                                "content": f"Tool '{function_name}' returned: {observation}",
                             })
-                            # Clear history to allow trying again later if needed
-                            self.tool_call_history = []
+
+                            # Record step
+                            steps.append(AgentStep(
+                                thought=full_response if full_response else None,
+                                action=function_name,
+                                action_input=args,
+                                observation=observation,
+                                step_number=iteration + 1,
+                            ))
+
+                            # Continue loop
                             continue
-
-                        # Execution successful or execution error (not validation) - show in frontend
-                        yield {
-                            "type": "action",
-                            "content": f"Using tool: {function_name}",
-                            "tool": function_name,
-                            "args": args,
-                            "step": iteration + 1,
-                        }
-
-                        # Create observation
-                        observation = result.output if result.success else f"Error: {result.error}"
-
-                        yield {
-                            "type": "observation",
-                            "content": observation,
-                            "success": result.success,
-                            "step": iteration + 1,
-                        }
-
-                        # Add tool result to conversation as user message
-                        messages.append({
-                            "role": "user",
-                            "content": f"Tool '{function_name}' returned: {observation}",
-                        })
-
-                        # Record step
-                        steps.append(AgentStep(
-                            thought=full_response if full_response else None,
-                            action=function_name,
-                            action_input=args,
-                            observation=observation,
-                            step_number=iteration + 1,
-                        ))
-
-                        # Continue loop
-                        continue
 
                 # No function call - agent is providing final answer
                 if full_response:

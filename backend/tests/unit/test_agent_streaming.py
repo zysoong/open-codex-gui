@@ -22,6 +22,10 @@ class MockTool:
             output="Mock tool executed successfully"
         )
 
+    async def validate_and_execute(self, **kwargs) -> ToolResult:
+        """Default implementation that just calls execute."""
+        return await self.execute(**kwargs)
+
     def format_for_llm(self):
         """Return tool in LLM function calling format."""
         return {
@@ -52,13 +56,13 @@ async def test_function_call_chunk_streaming():
     async def mock_generate_stream(*args, **kwargs):
         """Simulate OpenAI function call streaming."""
         # First chunk has function name
-        yield {"function_call": {"name": "mock_tool", "arguments": ""}}
+        yield {"function_call": {"name": "mock_tool", "arguments": ""}, "index": 0}
         # Subsequent chunks only have argument fragments
-        yield {"function_call": {"name": None, "arguments": '{"'}}
-        yield {"function_call": {"name": None, "arguments": 'test'}}
-        yield {"function_call": {"name": None, "arguments": '":"'}}
-        yield {"function_call": {"name": None, "arguments": 'value'}}
-        yield {"function_call": {"name": None, "arguments": '"}'}}
+        yield {"function_call": {"name": None, "arguments": '{"'}, "index": 0}
+        yield {"function_call": {"name": None, "arguments": 'test'}, "index": 0}
+        yield {"function_call": {"name": None, "arguments": '":"'}, "index": 0}
+        yield {"function_call": {"name": None, "arguments": 'value'}, "index": 0}
+        yield {"function_call": {"name": None, "arguments": '"}'}, "index": 0}
 
     mock_llm.generate_stream = mock_generate_stream
 
@@ -137,8 +141,8 @@ async def test_mixed_text_and_function_call():
         """Simulate text reasoning followed by function call."""
         # Some models emit thinking text before the function call
         yield "I need to use a tool for this"
-        yield {"function_call": {"name": "mock_tool", "arguments": ""}}
-        yield {"function_call": {"name": None, "arguments": '{"x": 1}'}}
+        yield {"function_call": {"name": "mock_tool", "arguments": ""}, "index": 0}
+        yield {"function_call": {"name": None, "arguments": '{"x": 1}'}, "index": 0}
 
     mock_llm.generate_stream = mock_generate_stream
 

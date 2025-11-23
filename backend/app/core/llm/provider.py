@@ -162,7 +162,8 @@ class LLMProvider:
                                     "function_call": {
                                         "name": tool_call.function.name,
                                         "arguments": tool_call.function.arguments,
-                                    }
+                                    },
+                                    "index": tool_call.index if hasattr(tool_call, 'index') else 0,
                                 }
 
             print(f"[LLM PROVIDER] Stream complete. Total chunks: {chunk_num}")

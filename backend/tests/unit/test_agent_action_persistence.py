@@ -73,11 +73,13 @@ class MockLLMProvider:
         )
 
         if self.should_recreate_env or (self.should_use_tool and not env_already_created):
-            # Simulate function calling
+            # Simulate function calling (match real LLM provider format)
             yield {
-                "type": "function_call",
-                "function_name": "setup_environment",
-                "function_args": '{"env_type": "docker"}'
+                "function_call": {
+                    "name": "setup_environment",
+                    "arguments": '{"env_type": "docker"}'
+                },
+                "index": 0
             }
         else:
             # Just respond with text
@@ -108,7 +110,7 @@ async def test_agent_actions_are_saved_to_database(db_session: AsyncSession):
 
     # Create a tool and agent
     tool_registry = ToolRegistry()
-    mock_tool = MockTool("bash")
+    mock_tool = MockTool("setup_environment")  # Match the tool that MockLLMProvider calls
     tool_registry.register(mock_tool)
 
     mock_llm = MockLLMProvider(should_use_tool=True)
@@ -179,7 +181,7 @@ async def test_agent_actions_are_saved_to_database(db_session: AsyncSession):
     saved_actions = action_result.scalars().all()
 
     assert len(saved_actions) > 0, "Agent actions should be saved to database"
-    assert saved_actions[0].action_type == "bash"
+    assert saved_actions[0].action_type == "setup_environment"
     assert saved_actions[0].action_input is not None
     assert saved_actions[0].status in [AgentActionStatus.SUCCESS, AgentActionStatus.PENDING]
 
