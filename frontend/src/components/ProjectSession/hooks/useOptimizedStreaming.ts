@@ -148,6 +148,12 @@ export const useOptimizedStreaming = ({ sessionId, initialMessages = [] }: UseOp
         break;
 
       case 'action':
+        // Remove all action_args_chunk events for this tool from existing state
+        // This prevents retroactive filtering during render
+        setStreamEvents(prev =>
+          prev.filter(e => !(e.type === 'action_args_chunk' && e.tool === data.tool))
+        );
+
         eventBufferRef.current.push({
           type: 'action',
           content: `Using tool: ${data.tool}`,
