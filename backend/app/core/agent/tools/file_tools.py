@@ -436,10 +436,33 @@ class FileEditTool(Tool):
 
             # Check if old_content exists in the file
             if old_content not in current_content:
+                # Enhanced error: Find similar content to help agent understand what went wrong
+                error_msg = f"Content to replace not found in file: {path}\n\n"
+
+                # Try to find similar content by searching for first line
+                old_lines = old_content.strip().split('\n')
+                if old_lines:
+                    first_line = old_lines[0].strip()[:50]  # First 50 chars of first line
+
+                    # Search for similar content in file
+                    file_lines = current_content.split('\n')
+                    similar_lines = []
+                    for i, line in enumerate(file_lines, 1):
+                        if first_line and first_line in line:
+                            similar_lines.append((i, line.strip()[:80]))
+
+                    if similar_lines:
+                        error_msg += f"Similar content found at these lines:\n"
+                        for line_num, line_content in similar_lines[:5]:  # Show up to 5 matches
+                            error_msg += f"  Line {line_num}: {line_content}\n"
+                        error_msg += f"\nHint: Check whitespace/indentation - it must match EXACTLY."
+                    else:
+                        error_msg += f"Could not find similar content. Use file_read('{path}') to see the exact file content."
+
                 return ToolResult(
                     success=False,
                     output="",
-                    error=f"Content to replace not found in file: {path}",
+                    error=error_msg,
                     metadata={"path": path},
                 )
 

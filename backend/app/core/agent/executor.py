@@ -96,6 +96,53 @@ Available tools will be provided as function calling options. Use them to accomp
         )
         return self.system_instructions.format(tools=tool_descriptions)
 
+    def _validate_before_edit(self, messages: List[Dict], file_path: str) -> tuple[bool, str]:
+        """Validate that agent has read the file before editing.
+
+        Checks if the file was read in this conversation to ensure agent knows
+        the exact content before attempting to edit.
+
+        Returns:
+            (should_proceed, message): False if validation fails with reason
+        """
+        # Check if file was read in this conversation
+        file_was_read = False
+
+        for msg in messages:
+            # Check if message contains function_call for file_read
+            if msg.get("role") == "assistant" and msg.get("function_call"):
+                func_call = msg.get("function_call", {})
+                if func_call.get("name") == "file_read":
+                    # Parse arguments to see if it's the same file
+                    try:
+                        args_str = func_call.get("arguments", "{}")
+                        args = json.loads(args_str) if isinstance(args_str, str) else args_str
+                        if args.get("path") == file_path:
+                            file_was_read = True
+                            break
+                    except:
+                        pass
+
+            # Also check in message content for file_read mentions
+            content = msg.get("content", "")
+            if isinstance(content, str) and f"file_read('{file_path}')" in content:
+                file_was_read = True
+                break
+
+        if not file_was_read:
+            return (False, f"""You're trying to edit {file_path} without reading it first.
+
+This is dangerous because:
+- You don't know the current file content
+- You don't know the exact formatting/indentation
+- Your edit will likely fail due to content mismatch
+
+Required action:
+Use file_read('{file_path}') FIRST to see the exact content, then try your edit.
+""")
+
+        return (True, "")
+
     async def run(
         self,
         user_message: str,
@@ -262,6 +309,21 @@ Available tools will be provided as function calling options. Use them to accomp
                             args = json.loads(function_args) if isinstance(function_args, str) else function_args
                         except json.JSONDecodeError:
                             args = {}
+
+                        # Validate file_edit requires file_read first
+                        if function_name == "file_edit":
+                            file_path = args.get("path", "")
+                            should_proceed, validation_msg = self._validate_before_edit(messages, file_path)
+
+                            if not should_proceed:
+                                print(f"[REACT AGENT] Validation failed for file_edit: {file_path}")
+                                # Add validation error to conversation
+                                messages.append({
+                                    "role": "user",
+                                    "content": validation_msg,
+                                })
+                                # Continue to next iteration (don't execute the tool)
+                                continue
 
                         # Execute tool
                         tool = self.tools.get(function_name)

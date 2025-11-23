@@ -58,7 +58,12 @@
       "WebFetch(domain:github.com)",
       "WebFetch(domain:www.ycombinator.com)",
       "WebFetch(domain:getstream.io)",
-      "WebFetch(domain:ai-sdk.dev)"
+      "WebFetch(domain:ai-sdk.dev)",
+      "WebFetch(domain:arxiv.org)",
+      "WebFetch(domain:www.anthropic.com)",
+      "WebFetch(domain:swe-agent.com)",
+      "WebFetch(domain:aiengineerguide.com)",
+      "WebFetch(domain:platform.claude.com)"
     ],
     "deny": [],
     "ask": []
