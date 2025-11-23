@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { chatSessionsAPI, messagesAPI } from '@/services/api';
 import { useChatStore } from '@/stores/chatStore';
 import './ChatSessionPage.css';
@@ -90,7 +92,23 @@ export default function ChatSessionPage() {
   // Auto-scroll to bottom
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, agentActions]);
+  }, [messages, agentActions, streamEvents]);
+
+  // Handle page visibility changes to force re-render when tab becomes visible
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        console.log('[ChatSessionPage] Tab became visible, streamEvents count:', streamEvents.length);
+        // Force a re-render by triggering state update
+        setMessages((prev) => [...prev]);
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [streamEvents]);
 
   // WebSocket connection
   useEffect(() => {
@@ -144,6 +162,7 @@ export default function ChatSessionPage() {
         addStreamEvent(streamingAction);
       } else if (data.type === 'action_args_chunk') {
         console.log('[ChatSessionPage] ACTION_ARGS_CHUNK received:', data);
+        console.log('[ChatSessionPage] Document hidden:', document.hidden);
         const argsChunk = {
           type: 'action_args_chunk' as const,
           content: data.partial_args || '',
@@ -153,6 +172,7 @@ export default function ChatSessionPage() {
         };
         addAgentAction(argsChunk);
         addStreamEvent(argsChunk);
+        console.log('[ChatSessionPage] Added argsChunk to streamEvents');
       } else if (data.type === 'action') {
         const action = {
           type: 'action' as const,
@@ -393,10 +413,10 @@ export default function ChatSessionPage() {
 
                     {/* Show unified stream for the last streaming message */}
                     {message.role === 'assistant' && index === messages.length - 1 && streamEvents && streamEvents.length > 0 && (
-                      <div className="streaming-content">
-                        {streamEvents
-                          // Filter to show clean streaming experience
-                          .filter((event, idx, arr) => {
+                      <div className="message-body">
+                        {(() => {
+                          // Filter events first
+                          const filteredEvents = streamEvents.filter((event, idx, arr) => {
                             // Always hide action_streaming
                             if (event.type === 'action_streaming') {
                               return false;
@@ -417,8 +437,46 @@ export default function ChatSessionPage() {
                             }
 
                             return true;
-                          })
-                          .map((event, idx) => renderStreamEvent(event, idx))}
+                          });
+
+                          // Group consecutive chunks together for markdown rendering
+                          const renderedElements: JSX.Element[] = [];
+                          let accumulatedChunks = '';
+                          let chunkStartIndex = 0;
+
+                          filteredEvents.forEach((event, idx) => {
+                            if (event.type === 'chunk') {
+                              // Accumulate chunk content
+                              if (accumulatedChunks === '') {
+                                chunkStartIndex = idx;
+                              }
+                              accumulatedChunks += event.content;
+                            } else {
+                              // Non-chunk event: flush accumulated chunks as markdown first
+                              if (accumulatedChunks) {
+                                renderedElements.push(
+                                  <ReactMarkdown key={`chunk-${chunkStartIndex}`} remarkPlugins={[remarkGfm]}>
+                                    {accumulatedChunks}
+                                  </ReactMarkdown>
+                                );
+                                accumulatedChunks = '';
+                              }
+                              // Render the non-chunk event
+                              renderedElements.push(renderStreamEvent(event, idx));
+                            }
+                          });
+
+                          // Flush any remaining chunks
+                          if (accumulatedChunks) {
+                            renderedElements.push(
+                              <ReactMarkdown key={`chunk-${chunkStartIndex}`} remarkPlugins={[remarkGfm]}>
+                                {accumulatedChunks}
+                              </ReactMarkdown>
+                            );
+                          }
+
+                          return renderedElements;
+                        })()}
                         <span className="streaming-cursor">▋</span>
                       </div>
                     )}
@@ -426,18 +484,18 @@ export default function ChatSessionPage() {
                     {/* Message content for completed messages */}
                     {message.role === 'assistant' && index < messages.length - 1 && message.content && (
                       <div className="message-body">
-                        {message.content.split('\n').map((line, i) => (
-                          <p key={i}>{line || '\u00A0'}</p>
-                        ))}
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                          {message.content}
+                        </ReactMarkdown>
                       </div>
                     )}
 
                     {/* User messages always show content */}
                     {message.role === 'user' && message.content && (
                       <div className="message-body">
-                        {message.content.split('\n').map((line, i) => (
-                          <p key={i}>{line || '\u00A0'}</p>
-                        ))}
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                          {message.content}
+                        </ReactMarkdown>
                       </div>
                     )}
                   </div>

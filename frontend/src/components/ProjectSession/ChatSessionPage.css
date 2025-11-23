@@ -151,21 +151,6 @@
   margin-bottom: 20px;
 }
 
-/* Streaming Content - for unified stream events */
-.streaming-content {
-  /* No centering - content flows naturally */
-}
-
-.streaming-content .streaming-cursor {
-  color: #2563eb;
-  animation: blink 1s infinite;
-}
-
-@keyframes blink {
-  0%, 50% { opacity: 1; }
-  51%, 100% { opacity: 0; }
-}
-
 .action-block {
   margin-bottom: 16px;
   border-radius: 8px;
@@ -279,6 +264,7 @@
   color: #14532d;
   max-height: 300px;
   overflow-y: auto;
+  text-align: left;
 }
 
 .observation.error .observation-content {
@@ -417,6 +403,96 @@ pre {
   font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
   white-space: pre-wrap;
   word-wrap: break-word;
+}
+
+/* Markdown rendering in message-body */
+.message-body code {
+  background: #f3f4f6;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 13px;
+}
+
+.message-body pre {
+  background: #1e1e1e;
+  color: #d4d4d4;
+  padding: 12px;
+  border-radius: 6px;
+  overflow-x: auto;
+  margin: 12px 0;
+}
+
+.message-body pre code {
+  background: transparent;
+  padding: 0;
+  color: inherit;
+}
+
+.message-body ul,
+.message-body ol {
+  margin: 8px 0;
+  padding-left: 24px;
+}
+
+.message-body li {
+  margin: 4px 0;
+}
+
+.message-body h1,
+.message-body h2,
+.message-body h3,
+.message-body h4,
+.message-body h5,
+.message-body h6 {
+  margin: 16px 0 8px 0;
+  font-weight: 600;
+}
+
+.message-body h1 {
+  font-size: 24px;
+}
+
+.message-body h2 {
+  font-size: 20px;
+}
+
+.message-body h3 {
+  font-size: 18px;
+}
+
+.message-body blockquote {
+  border-left: 3px solid #e5e7eb;
+  padding-left: 12px;
+  margin: 12px 0;
+  color: #6b7280;
+}
+
+.message-body a {
+  color: #2563eb;
+  text-decoration: none;
+}
+
+.message-body a:hover {
+  text-decoration: underline;
+}
+
+.message-body table {
+  border-collapse: collapse;
+  margin: 12px 0;
+  width: 100%;
+}
+
+.message-body th,
+.message-body td {
+  border: 1px solid #e5e7eb;
+  padding: 8px 12px;
+  text-align: left;
+}
+
+.message-body th {
+  background: #f9fafb;
+  font-weight: 600;
 }
 
 /* Error Banner */
