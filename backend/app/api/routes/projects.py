@@ -65,7 +65,7 @@ async def create_project(
         agent_type="code_agent",
         enabled_tools=["bash", "file_read", "file_write", "file_edit", "search"],
         llm_provider="openai",
-        llm_model="gpt-5-2025-08-07",  # Latest OpenAI model (GPT-5)
+        llm_model="gpt-4o-mini",  # Use API-native model names (gpt-4o, gpt-4o-mini, etc.)
         llm_config={"temperature": 1.0, "max_tokens": 16384},
     )
     db.add(agent_config)

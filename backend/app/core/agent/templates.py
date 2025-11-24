@@ -32,7 +32,7 @@ AGENT_TEMPLATES = {
         },
         enabled_tools=["bash", "file_read", "file_write", "file_edit", "search"],
         llm_provider="openai",
-        llm_model="gpt-4",
+        llm_model="gpt-4o-mini",
         llm_config={
             "temperature": 0.7,
             "max_tokens": 16384
@@ -65,7 +65,7 @@ Best practices:
         },
         enabled_tools=["bash", "file_read", "file_write", "file_edit", "search"],
         llm_provider="openai",
-        llm_model="gpt-4",
+        llm_model="gpt-4o-mini",
         llm_config={
             "temperature": 0.7,
             "max_tokens": 16384
@@ -98,7 +98,7 @@ Best practices:
         },
         enabled_tools=["bash", "file_read", "file_write", "file_edit", "search"],
         llm_provider="openai",
-        llm_model="gpt-4",
+        llm_model="gpt-4o-mini",
         llm_config={
             "temperature": 0.5,
             "max_tokens": 16384
@@ -131,7 +131,7 @@ Best practices:
         },
         enabled_tools=["bash", "file_read", "file_write", "search"],  # No file_edit for safety
         llm_provider="openai",
-        llm_model="gpt-4",
+        llm_model="gpt-4o-mini",
         llm_config={
             "temperature": 0.6,
             "max_tokens": 16384
@@ -162,7 +162,7 @@ Best practices:
         environment_config={},
         enabled_tools=["bash", "file_read", "search"],  # Read-only for safety
         llm_provider="openai",
-        llm_model="gpt-4",
+        llm_model="gpt-4o-mini",
         llm_config={
             "temperature": 0.3,
             "max_tokens": 16384
@@ -198,7 +198,7 @@ Provide specific, actionable feedback with examples."""
         },
         enabled_tools=["bash", "file_read", "file_write", "file_edit", "search"],
         llm_provider="openai",
-        llm_model="gpt-4",
+        llm_model="gpt-4o-mini",
         llm_config={
             "temperature": 0.5,
             "max_tokens": 16384
@@ -230,7 +230,7 @@ Best practices:
         environment_config={},
         enabled_tools=["bash", "file_read", "search"],
         llm_provider="openai",
-        llm_model="gpt-4",
+        llm_model="gpt-4o-mini",
         llm_config={
             "temperature": 0.7,
             "max_tokens": 16384
@@ -247,7 +247,7 @@ Best practices:
         environment_config={},
         enabled_tools=["bash", "file_read", "file_write", "file_edit", "search"],
         llm_provider="openai",
-        llm_model="gpt-5-2025-08-07",
+        llm_model="gpt-4o-mini",
         llm_config={
             "temperature": 1.0,
             "max_tokens": 16384

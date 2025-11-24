@@ -302,7 +302,15 @@ Use file_read('{file_path}') FIRST to see the exact content, then try your edit.
                             }
                         })
 
-                        # Note: reasoning text before function call was already emitted as chunks during streaming
+                        # Emit thought event if LLM reasoned before taking action
+                        # This provides semantic structure to the chunks that were emitted during streaming
+                        if full_response and full_response.strip():
+                            print(f"[REACT AGENT] Emitting thought event (length: {len(full_response)})")
+                            yield {
+                                "type": "thought",
+                                "content": full_response,
+                                "step": iteration + 1,
+                            }
 
                         # Parse function arguments
                         try:

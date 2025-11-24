@@ -54,9 +54,11 @@ class LLMProvider:
             os.environ[env_key] = api_key
 
     def _build_model_name(self) -> str:
-        """Build the full model name for LiteLLM."""
-        # For most providers, LiteLLM uses format: provider/model
-        # For OpenAI, just the model name is fine
+        """Build the full model name for LiteLLM.
+
+        For most providers, LiteLLM uses format: provider/model
+        For OpenAI, just the model name is fine.
+        """
         if self.provider.lower() == "openai":
             return self.model
         return f"{self.provider}/{self.model}"

@@ -37,7 +37,7 @@ class Settings(BaseSettings):
 
     # LLM Defaults
     default_llm_provider: str = "openai"
-    default_llm_model: str = "gpt-5-2025-08-07"  # Latest OpenAI model (GPT-5)
+    default_llm_model: str = "gpt-4o-mini"  # Use API-native model names (gpt-4o, gpt-4o-mini, etc.)
 
     # API Key Encryption
     master_encryption_key: str | None = None

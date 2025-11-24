@@ -133,7 +133,7 @@ class TestAgentConfiguration:
 
         # Default config should have LLM settings but no environment
         assert data["llm_provider"] == "openai"
-        assert data["llm_model"] == "gpt-5-2025-08-07"
+        assert data["llm_model"] == "gpt-4o-mini"
         assert "environment_type" not in data
         assert len(data["enabled_tools"]) > 0
 
@@ -157,7 +157,7 @@ class TestDatabaseSchema:
             agent_type="code_agent",
             enabled_tools=["bash"],
             llm_provider="openai",
-            llm_model="gpt-5-2025-08-07",
+            llm_model="gpt-4o-mini",
             llm_config={},
         )
         db_session.add(agent_config)
