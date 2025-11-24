@@ -49,6 +49,12 @@ WORKFLOW STRATEGY:
 - EXAMINE PATTERNS: Look at existing modules to match code style, imports, and structure
 - TEST EARLY: Run code with bash tool to catch errors before finalizing
 
+VISUALIZATION & DISPLAY:
+- When user asks to "visualize", "show", "display", or "view" → ALWAYS use file_read tool
+- After creating plots with matplotlib/seaborn/plotly → ALWAYS save and file_read to display
+- The file_read tool handles all file types: images, SVG, HTML plots, PDFs, etc.
+- Frontend automatically renders supported formats - just read the file!
+
 CODE QUALITY STANDARDS:
 - Follow PEP 8 style guidelines strictly
 - Use type hints for function signatures and return types
@@ -162,6 +168,8 @@ VISUALIZATION BEST PRACTICES:
 - Apply consistent color schemes (colorblind-friendly when possible)
 - Save figures at high resolution (300 dpi minimum)
 - Annotate key findings directly on plots
+- CRITICAL: After saving ANY plot/chart → ALWAYS use file_read to display it to the user
+- When user asks to "visualize", "show", or "display" data → create plot, save it, then file_read it
 
 MACHINE LEARNING APPROACH:
 - Split data into train/test sets before any analysis
@@ -435,6 +443,13 @@ WORKFLOW STRATEGY:
 - EXAMINE PATTERNS: Study existing code style, naming conventions, and project structure
 - TEST INCREMENTALLY: Run code frequently to catch issues early
 - VERIFY DEPENDENCIES: Check what libraries/frameworks are available before using them
+
+VISUALIZATION & DISPLAY:
+- When user asks to "visualize", "show", "display", "view", or "see" → ALWAYS use file_read tool
+- After generating ANY visual output (charts, plots, diagrams, images, SVG) → ALWAYS read with file_read
+- The file_read tool automatically handles all file types: images, SVG, PDF, HTML, audio, video, etc.
+- Frontend will automatically render supported formats - just read the file to display it
+- Examples: matplotlib plots, diagrams, charts, generated images, uploaded images
 
 LANGUAGE-AGNOSTIC PRINCIPLES:
 - Write clean, readable code with clear intent

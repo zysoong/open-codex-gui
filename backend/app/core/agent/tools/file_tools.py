@@ -111,16 +111,20 @@ class FileReadTool(Tool):
     @property
     def description(self) -> str:
         return (
-            "Read the complete contents of a file from the sandbox environment. "
-            "Can read from: /workspace/project_files (user uploaded files) or "
-            "/workspace/out (files created by you). Handles BOTH text and binary files. "
-            "For text files: returns content as string. "
-            "For binary files (images, PDFs, etc): returns base64-encoded data URI (e.g., 'data:image/png;base64,...'). "
-            "Use this to: inspect code before editing, view configuration files, check log outputs, "
-            "read data files, or retrieve generated images to show to the user. "
-            "For large text files, consider using bash with 'head' or 'tail' commands. "
-            "Examples: '/workspace/out/script.py', '/workspace/out/chart.png', '/workspace/project_files/data.csv'. "
-            "IMPORTANT: After generating an image, ALWAYS read it with this tool and include the data URI in your response so the user can see it."
+            "Read and visualize any file from the sandbox environment. "
+            "USE THIS TOOL WHEN USER ASKS TO: visualize, show, display, view, see, render, preview, or look at ANY file. "
+            "Can read from: /workspace/project_files (user uploaded files) or /workspace/out (files created by you). "
+            "UNIVERSAL FILE SUPPORT: "
+            "• Text files → returns content as string for viewing "
+            "• Images (PNG, JPG, SVG, GIF, etc.) → returns data URI for automatic display "
+            "• Documents (PDF, HTML, etc.) → returns data URI for rendering "
+            "• Media (audio, video) → returns data URI for playback (if supported) "
+            "• Data files (CSV, JSON, XML) → returns content for inspection "
+            "• Binary files → returns base64-encoded data URI "
+            "The frontend automatically renders supported formats - just read the file! "
+            "Examples: '/workspace/out/plot.png', '/workspace/out/diagram.svg', '/workspace/project_files/image.jpg'. "
+            "CRITICAL: When user says 'visualize', 'show me', or 'display' → ALWAYS use this tool to make content visible. "
+            "After generating ANY visual output (charts, plots, diagrams, images), ALWAYS read it to display to user."
         )
 
     @property
