@@ -353,4 +353,360 @@ test.describe('Chat Session', () => {
     expect(inputValue).toContain('Line 1');
     expect(inputValue).toContain('Line 2');
   });
+
+  test.describe('Bug Fix 2: Messages disappearing on navigation during streaming', () => {
+    test('BF2-E2E-001: Messages persist when navigating back during streaming', async ({ page }) => {
+      // Create a session with multiple messages
+      await page.fill('textarea[placeholder*="How can I help"]', 'First message');
+      await page.click('button.send-btn');
+      await page.waitForTimeout(2000);
+
+      await page.fill('.chat-input', 'Second message');
+      await page.press('.chat-input', 'Enter');
+      await page.waitForTimeout(1500);
+
+      // Start streaming a third message
+      await page.fill('.chat-input', 'Write a long explanation about React');
+      await page.press('.chat-input', 'Enter');
+
+      // Wait for streaming to start
+      await page.waitForTimeout(500);
+
+      // Count messages before navigation
+      const messageCountBefore = await page.evaluate(() => {
+        return document.querySelectorAll('[data-testid^="message-"]').length;
+      });
+
+      expect(messageCountBefore).toBeGreaterThanOrEqual(3);
+
+      // Navigate back to project while streaming is active
+      await page.click('button:has-text("Back to Project")');
+      await page.waitForTimeout(500);
+
+      // Navigate back to the chat session
+      const sessionCards = page.locator('.session-card');
+      await sessionCards.first().click();
+      await page.waitForTimeout(1000);
+
+      // Verify all messages are still visible
+      await expect(page.locator('text=First message')).toBeVisible();
+      await expect(page.locator('text=Second message')).toBeVisible();
+
+      // Count messages after navigation
+      const messageCountAfter = await page.evaluate(() => {
+        return document.querySelectorAll('[data-testid^="message-"]').length;
+      });
+
+      expect(messageCountAfter).toBe(messageCountBefore);
+    });
+
+    test('BF2-E2E-002: Page does not show empty state after navigating back during streaming', async ({ page }) => {
+      // Create a session
+      await page.fill('textarea[placeholder*="How can I help"]', 'Initial message');
+      await page.click('button.send-btn');
+      await page.waitForTimeout(2000);
+
+      // Start streaming
+      await page.fill('.chat-input', 'Tell me about JavaScript');
+      await page.press('.chat-input', 'Enter');
+      await page.waitForTimeout(500);
+
+      // Navigate away
+      await page.click('button:has-text("Back to Project")');
+      await page.waitForTimeout(500);
+
+      // Navigate back
+      const sessionCards = page.locator('.session-card');
+      await sessionCards.first().click();
+      await page.waitForTimeout(1000);
+
+      // Should NOT show empty state
+      const emptyState = page.locator('text=Start a conversation');
+      await expect(emptyState).not.toBeVisible();
+
+      // Should show messages
+      await expect(page.locator('text=Initial message')).toBeVisible();
+    });
+
+    test('BF2-E2E-003: Messages persist across multiple navigation cycles', async ({ page }) => {
+      // Create a session with messages
+      await page.fill('textarea[placeholder*="How can I help"]', 'Message 1');
+      await page.click('button.send-btn');
+      await page.waitForTimeout(2000);
+
+      await page.fill('.chat-input', 'Message 2');
+      await page.press('.chat-input', 'Enter');
+      await page.waitForTimeout(1500);
+
+      // First navigation cycle
+      await page.click('button:has-text("Back to Project")');
+      await page.waitForTimeout(500);
+      await page.locator('.session-card').first().click();
+      await page.waitForTimeout(1000);
+
+      await expect(page.locator('text=Message 1')).toBeVisible();
+      await expect(page.locator('text=Message 2')).toBeVisible();
+
+      // Second navigation cycle
+      await page.click('button:has-text("Back to Project")');
+      await page.waitForTimeout(500);
+      await page.locator('.session-card').first().click();
+      await page.waitForTimeout(1000);
+
+      await expect(page.locator('text=Message 1')).toBeVisible();
+      await expect(page.locator('text=Message 2')).toBeVisible();
+
+      // Third navigation cycle
+      await page.click('button:has-text("Back to Project")');
+      await page.waitForTimeout(500);
+      await page.locator('.session-card').first().click();
+      await page.waitForTimeout(1000);
+
+      await expect(page.locator('text=Message 1')).toBeVisible();
+      await expect(page.locator('text=Message 2')).toBeVisible();
+    });
+
+    test('BF2-E2E-004: Streaming message persists when navigating back', async ({ page }) => {
+      // Create a session
+      await page.fill('textarea[placeholder*="How can I help"]', 'Start session');
+      await page.click('button.send-btn');
+      await page.waitForTimeout(2000);
+
+      // Start streaming
+      await page.fill('.chat-input', 'Explain TypeScript');
+      await page.press('.chat-input', 'Enter');
+      await page.waitForTimeout(1000);
+
+      // Get partial streaming content
+      const partialContent = await page.evaluate(() => {
+        const messages = document.querySelectorAll('[data-testid^="message-"]');
+        const lastMessage = messages[messages.length - 1];
+        return lastMessage?.textContent || '';
+      });
+
+      // Navigate away during streaming
+      await page.click('button:has-text("Back to Project")');
+      await page.waitForTimeout(500);
+
+      // Navigate back
+      await page.locator('.session-card').first().click();
+      await page.waitForTimeout(1000);
+
+      // Original messages should still be there
+      await expect(page.locator('text=Start session')).toBeVisible();
+
+      // The streaming message should also persist
+      const messages = await page.evaluate(() => {
+        return document.querySelectorAll('[data-testid^="message-"]').length;
+      });
+
+      expect(messages).toBeGreaterThanOrEqual(2);
+    });
+
+    test('BF2-E2E-005: New messages are added correctly after navigation', async ({ page }) => {
+      // Create a session
+      await page.fill('textarea[placeholder*="How can I help"]', 'First');
+      await page.click('button.send-btn');
+      await page.waitForTimeout(2000);
+
+      // Navigate away and back
+      await page.click('button:has-text("Back to Project")');
+      await page.waitForTimeout(500);
+      await page.locator('.session-card').first().click();
+      await page.waitForTimeout(1000);
+
+      // Add a new message after navigation
+      await page.fill('.chat-input', 'Second message after navigation');
+      await page.press('.chat-input', 'Enter');
+      await page.waitForTimeout(1500);
+
+      // Both messages should be visible
+      await expect(page.locator('text=First')).toBeVisible();
+      await expect(page.locator('text=Second message after navigation')).toBeVisible();
+    });
+
+    test('BF2-E2E-006: Direct URL access loads all messages correctly', async ({ page }) => {
+      // Create a session with messages
+      await page.fill('textarea[placeholder*="How can I help"]', 'URL test message 1');
+      await page.click('button.send-btn');
+      await page.waitForTimeout(2000);
+
+      await page.fill('.chat-input', 'URL test message 2');
+      await page.press('.chat-input', 'Enter');
+      await page.waitForTimeout(1500);
+
+      // Get the session URL
+      const sessionUrl = page.url();
+
+      // Navigate to home
+      await page.goto('/');
+      await page.waitForTimeout(500);
+
+      // Direct access via URL
+      await page.goto(sessionUrl);
+      await page.waitForTimeout(1500);
+
+      // All messages should load correctly
+      await expect(page.locator('text=URL test message 1')).toBeVisible();
+      await expect(page.locator('text=URL test message 2')).toBeVisible();
+
+      // Should not show empty state
+      const emptyState = page.locator('text=Start a conversation');
+      await expect(emptyState).not.toBeVisible();
+    });
+
+    test('BF2-E2E-007: Messages persist when browser back button is used during streaming', async ({ page }) => {
+      // Create a session
+      await page.fill('textarea[placeholder*="How can I help"]', 'Browser back test');
+      await page.click('button.send-btn');
+      await page.waitForTimeout(2000);
+
+      // Start streaming
+      await page.fill('.chat-input', 'Explain async/await');
+      await page.press('.chat-input', 'Enter');
+      await page.waitForTimeout(500);
+
+      // Use browser back button
+      await page.goBack();
+      await page.waitForTimeout(500);
+
+      // Use browser forward button
+      await page.goForward();
+      await page.waitForTimeout(1000);
+
+      // Messages should still be visible
+      await expect(page.locator('text=Browser back test')).toBeVisible();
+
+      const messages = await page.evaluate(() => {
+        return document.querySelectorAll('[data-testid^="message-"]').length;
+      });
+
+      expect(messages).toBeGreaterThanOrEqual(1);
+    });
+
+    test('BF2-E2E-008: Rapid navigation does not cause message loss', async ({ page }) => {
+      // Create a session
+      await page.fill('textarea[placeholder*="How can I help"]', 'Rapid nav test');
+      await page.click('button.send-btn');
+      await page.waitForTimeout(2000);
+
+      // Rapid navigation
+      for (let i = 0; i < 3; i++) {
+        await page.click('button:has-text("Back to Project")');
+        await page.waitForTimeout(200);
+        await page.locator('.session-card').first().click();
+        await page.waitForTimeout(200);
+      }
+
+      // Message should still be visible
+      await expect(page.locator('text=Rapid nav test')).toBeVisible();
+    });
+
+    test('BF2-E2E-009: Session with many messages preserves all content after navigation', async ({ page }) => {
+      // Create a session
+      await page.fill('textarea[placeholder*="How can I help"]', 'Message 1');
+      await page.click('button.send-btn');
+      await page.waitForTimeout(2000);
+
+      // Add multiple messages
+      for (let i = 2; i <= 5; i++) {
+        await page.fill('.chat-input', `Message ${i}`);
+        await page.press('.chat-input', 'Enter');
+        await page.waitForTimeout(1000);
+      }
+
+      const messageCountBefore = await page.evaluate(() => {
+        return document.querySelectorAll('[data-testid^="message-"]').length;
+      });
+
+      // Navigate away and back
+      await page.click('button:has-text("Back to Project")');
+      await page.waitForTimeout(500);
+      await page.locator('.session-card').first().click();
+      await page.waitForTimeout(1000);
+
+      const messageCountAfter = await page.evaluate(() => {
+        return document.querySelectorAll('[data-testid^="message-"]').length;
+      });
+
+      // All messages should be preserved
+      expect(messageCountAfter).toBe(messageCountBefore);
+
+      // Verify specific messages
+      for (let i = 1; i <= 5; i++) {
+        await expect(page.locator(`text=Message ${i}`)).toBeVisible();
+      }
+    });
+
+    test('BF2-E2E-010: Empty state only shows for truly empty sessions', async ({ page }) => {
+      // Create a new session
+      await page.fill('textarea[placeholder*="How can I help"]', 'Test message');
+      await page.click('button.send-btn');
+      await page.waitForTimeout(2000);
+
+      // Navigate back to project
+      await page.click('button:has-text("Back to Project")');
+      await page.waitForTimeout(500);
+
+      // Start a completely new session
+      await page.fill('textarea[placeholder*="How can I help"]', 'New session start');
+      await page.click('button.send-btn');
+      await page.waitForTimeout(2000);
+
+      // This new session should not show empty state
+      const emptyState = page.locator('text=Start a conversation');
+      await expect(emptyState).not.toBeVisible();
+
+      // Message should be visible
+      await expect(page.locator('text=New session start')).toBeVisible();
+    });
+
+    test('BF2-E2E-011: Messages remain visible during page reload', async ({ page }) => {
+      // Create a session with messages
+      await page.fill('textarea[placeholder*="How can I help"]', 'Reload test message');
+      await page.click('button.send-btn');
+      await page.waitForTimeout(2000);
+
+      await page.fill('.chat-input', 'Second reload test');
+      await page.press('.chat-input', 'Enter');
+      await page.waitForTimeout(1500);
+
+      // Reload the page
+      await page.reload();
+      await page.waitForTimeout(1500);
+
+      // Messages should still be visible after reload
+      await expect(page.locator('text=Reload test message')).toBeVisible();
+      await expect(page.locator('text=Second reload test')).toBeVisible();
+    });
+
+    test('BF2-E2E-012: Streaming state recovers correctly after navigation', async ({ page }) => {
+      // Create a session
+      await page.fill('textarea[placeholder*="How can I help"]', 'Recovery test');
+      await page.click('button.send-btn');
+      await page.waitForTimeout(2000);
+
+      // Start streaming
+      await page.fill('.chat-input', 'Long streaming response');
+      await page.press('.chat-input', 'Enter');
+      await page.waitForTimeout(500);
+
+      // Navigate away mid-stream
+      await page.click('button:has-text("Back to Project")');
+      await page.waitForTimeout(500);
+
+      // Navigate back
+      await page.locator('.session-card').first().click();
+      await page.waitForTimeout(1000);
+
+      // Check that we can send new messages
+      await page.fill('.chat-input', 'New message after recovery');
+      await page.press('.chat-input', 'Enter');
+      await page.waitForTimeout(1500);
+
+      // All messages should be visible
+      await expect(page.locator('text=Recovery test')).toBeVisible();
+      await expect(page.locator('text=New message after recovery')).toBeVisible();
+    });
+  });
 });

@@ -25,6 +25,13 @@ const AllTheProviders = ({ children }: { children: React.ReactNode }) => {
 const customRender = (ui: React.ReactElement, options?: any) =>
   render(ui, { wrapper: AllTheProviders, ...options });
 
+// Mock MemoizedMessage to avoid streamdown/lucide-react import issues
+vi.mock('../MemoizedMessage', () => ({
+  MemoizedMessage: ({ message }: any) => (
+    <div data-testid="memoized-message">{message.content}</div>
+  ),
+}));
+
 // Mock refs for testing scroll behavior
 let mockScrollToIndex: ReturnType<typeof vi.fn>;
 let mockIsScrollingCallback: ((isScrolling: boolean) => void) | null = null;
@@ -207,7 +214,7 @@ describe('VirtualizedChatList', () => {
 
       const toggleButton = screen.getByTitle('Auto-scroll enabled');
       expect(toggleButton).toHaveStyle({ backgroundColor: '#3b82f6' });
-      expect(toggleButton).toHaveStyle({ color: 'white' });
+      expect(toggleButton).toHaveStyle({ color: 'rgb(255, 255, 255)' });
     });
 
     it('should apply correct styles when disabled', () => {
@@ -217,7 +224,7 @@ describe('VirtualizedChatList', () => {
       fireEvent.click(toggleButton);
 
       const disabledButton = screen.getByTitle('Auto-scroll disabled');
-      expect(disabledButton).toHaveStyle({ backgroundColor: 'white' });
+      expect(disabledButton).toHaveStyle({ backgroundColor: 'rgb(255, 255, 255)' });
       expect(disabledButton).toHaveStyle({ color: '#3b82f6' });
     });
   });
@@ -370,20 +377,16 @@ describe('VirtualizedChatList', () => {
     });
 
     describe('user scroll detection and auto-scroll disable', () => {
-      it('should disable auto-scroll when user scrolls away from bottom', async () => {
+      it('should disable auto-scroll when user scrolls (any direction)', async () => {
         customRender(<VirtualizedChatList messages={mockMessages} isStreaming={false} />);
 
         // Verify auto-scroll starts enabled
         expect(screen.getByTitle('Auto-scroll enabled')).toBeInTheDocument();
 
-        // Simulate user scrolling
+        // Simulate user scrolling (handleScroll callback with isScrolling=true)
+        // With the new implementation, auto-scroll disables immediately on user scroll
         act(() => {
           mockIsScrollingCallback?.(true);
-        });
-
-        // User scrolls away from bottom
-        act(() => {
-          mockAtBottomCallback?.(false);
         });
 
         await waitFor(() => {
@@ -391,46 +394,48 @@ describe('VirtualizedChatList', () => {
         });
       });
 
-      it('should not disable auto-scroll if user is at bottom', async () => {
+      it('should disable auto-scroll even if scrolling down at bottom', async () => {
         customRender(<VirtualizedChatList messages={mockMessages} isStreaming={false} />);
 
         expect(screen.getByTitle('Auto-scroll enabled')).toBeInTheDocument();
 
-        // User scrolls but stays at bottom
+        // With new implementation, ANY user scrolling disables auto-scroll
+        // This prevents fighting with programmatic scrolls
         act(() => {
           mockIsScrollingCallback?.(true);
           mockAtBottomCallback?.(true);
         });
 
         await waitFor(() => {
-          expect(screen.getByTitle('Auto-scroll enabled')).toBeInTheDocument();
+          expect(screen.getByTitle('Auto-scroll disabled')).toBeInTheDocument();
         });
       });
 
-      it('should not disable auto-scroll during active streaming', async () => {
+      it('should disable auto-scroll when user scrolls during streaming (Bug Fix)', async () => {
         render(<VirtualizedChatList messages={mockMessages} isStreaming={true} />);
 
         expect(screen.getByTitle('Auto-scroll enabled')).toBeInTheDocument();
 
-        // User scrolls during streaming - should not disable
+        // Bug Fix: User scrolls during streaming - should NOW disable auto-scroll
+        // Previously, the !isStreaming condition prevented this from working
+        // Now any user scrolling (when autoScrollingRef.current is false) disables it
         act(() => {
           mockIsScrollingCallback?.(true);
-          mockAtBottomCallback?.(false);
         });
 
-        // Auto-scroll should still be enabled during streaming
-        expect(screen.getByTitle('Auto-scroll enabled')).toBeInTheDocument();
+        await waitFor(() => {
+          expect(screen.getByTitle('Auto-scroll disabled')).toBeInTheDocument();
+        });
       });
 
-      it('should prevent shaking by disabling auto-scroll on user scroll up', async () => {
+      it('should prevent shaking by disabling auto-scroll on user scroll', async () => {
         const { rerender } = customRender(
           <VirtualizedChatList messages={mockMessages} isStreaming={false} />
         );
 
-        // User scrolls up
+        // User scrolls (any direction)
         act(() => {
           mockIsScrollingCallback?.(true);
-          mockAtBottomCallback?.(false);
         });
 
         await waitFor(() => {
@@ -643,29 +648,207 @@ describe('VirtualizedChatList', () => {
       it('should only disable on user scroll, not programmatic scroll', async () => {
         customRender(<VirtualizedChatList messages={mockMessages} isStreaming={false} />);
 
-        // Programmatic scroll (atBottom change without user scrolling)
+        // Programmatic scroll events won't trigger handleScroll with isScrolling=true
+        // when autoScrollingRef.current is true
+        // Only atBottom state change (without isScrolling) shouldn't disable auto-scroll
         act(() => {
           mockAtBottomCallback?.(false);
         });
 
-        // Should remain enabled since user didn't scroll
+        // Should remain enabled since handleScroll wasn't called with isScrolling=true
         expect(screen.getByTitle('Auto-scroll enabled')).toBeInTheDocument();
       });
 
       it('should handle rapid scroll events correctly', async () => {
         customRender(<VirtualizedChatList messages={mockMessages} isStreaming={false} />);
 
-        // Rapid scroll events
+        // Rapid scroll events - first isScrolling=true should disable auto-scroll
         act(() => {
           mockIsScrollingCallback?.(true);
-          mockIsScrollingCallback?.(false);
-          mockIsScrollingCallback?.(true);
-          mockAtBottomCallback?.(false);
         });
 
         await waitFor(() => {
           expect(screen.getByTitle('Auto-scroll disabled')).toBeInTheDocument();
         });
+
+        // Additional scroll events after it's disabled
+        act(() => {
+          mockIsScrollingCallback?.(false);
+          mockIsScrollingCallback?.(true);
+          mockAtBottomCallback?.(false);
+        });
+
+        // Should still be disabled
+        expect(screen.getByTitle('Auto-scroll disabled')).toBeInTheDocument();
+      });
+    });
+  });
+
+  describe('Bug Fix: User scroll detection during streaming', () => {
+    it('BF1-001: autoScrollingRef distinguishes user scrolling from programmatic scrolling during streaming', async () => {
+      const { rerender } = customRender(
+        <VirtualizedChatList messages={mockMessages} isStreaming={true} />
+      );
+
+      expect(screen.getByTitle('Auto-scroll enabled')).toBeInTheDocument();
+
+      // Simulate user scrolling during streaming (not programmatic scroll)
+      // The handleScroll callback checks !autoScrollingRef.current to detect user scrolls
+      // When user scrolls (isScrolling=true) and autoScrollingRef.current is false,
+      // auto-scroll is disabled immediately
+      act(() => {
+        mockIsScrollingCallback?.(true);
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTitle('Auto-scroll disabled')).toBeInTheDocument();
+      });
+    });
+
+    it('BF1-002: auto-scroll should disable even when isStreaming is true', async () => {
+      const { rerender } = customRender(
+        <VirtualizedChatList messages={mockMessages} isStreaming={true} />
+      );
+
+      expect(screen.getByTitle('Auto-scroll enabled')).toBeInTheDocument();
+
+      // Simulate user scrolling during active streaming
+      // Any user scrolling disables auto-scroll
+      act(() => {
+        mockIsScrollingCallback?.(true);
+      });
+
+      // Auto-scroll should be disabled even though isStreaming=true
+      await waitFor(() => {
+        expect(screen.getByTitle('Auto-scroll disabled')).toBeInTheDocument();
+      });
+
+      // Verify the component remains in streaming state
+      rerender(<VirtualizedChatList messages={mockMessages} isStreaming={true} />);
+      expect(screen.getByTitle('Auto-scroll disabled')).toBeInTheDocument();
+    });
+
+    it('BF1-003: auto-scroll remains enabled if user does not scroll during streaming', async () => {
+      customRender(<VirtualizedChatList messages={mockMessages} isStreaming={true} />);
+
+      expect(screen.getByTitle('Auto-scroll enabled')).toBeInTheDocument();
+
+      // Streaming continues but user doesn't scroll
+      await waitFor(() => {
+        expect(screen.getByTitle('Auto-scroll enabled')).toBeInTheDocument();
+      });
+    });
+
+    it('BF1-004: user can re-enable auto-scroll after scrolling during streaming', async () => {
+      customRender(<VirtualizedChatList messages={mockMessages} isStreaming={true} />);
+
+      // User scrolls during streaming
+      act(() => {
+        mockIsScrollingCallback?.(true);
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTitle('Auto-scroll disabled')).toBeInTheDocument();
+      });
+
+      // User clicks button to re-enable auto-scroll
+      const disabledButton = screen.getByTitle('Auto-scroll disabled');
+      fireEvent.click(disabledButton);
+
+      await waitFor(() => {
+        expect(screen.getByTitle('Auto-scroll enabled')).toBeInTheDocument();
+      });
+    });
+
+    it('BF1-005: handleScroll callback is called even when isStreaming is true', async () => {
+      customRender(<VirtualizedChatList messages={mockMessages} isStreaming={true} />);
+
+      // Verify initial state
+      expect(screen.getByTitle('Auto-scroll enabled')).toBeInTheDocument();
+
+      // Simulate scroll event during streaming (this tests that the callback works)
+      act(() => {
+        mockIsScrollingCallback?.(true);
+      });
+
+      // Verify callback was processed by checking that auto-scroll is disabled
+      await waitFor(() => {
+        expect(screen.getByTitle('Auto-scroll disabled')).toBeInTheDocument();
+      });
+    });
+
+    it('BF1-006: multiple scroll events during streaming are handled correctly', async () => {
+      customRender(<VirtualizedChatList messages={mockMessages} isStreaming={true} />);
+
+      // Multiple scroll events during streaming
+      // First isScrolling=true should disable auto-scroll
+      act(() => {
+        mockIsScrollingCallback?.(true);
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTitle('Auto-scroll disabled')).toBeInTheDocument();
+      });
+
+      // Additional scroll events
+      act(() => {
+        mockIsScrollingCallback?.(true);
+        mockIsScrollingCallback?.(true);
+        mockAtBottomCallback?.(false);
+      });
+
+      // Should still be disabled
+      expect(screen.getByTitle('Auto-scroll disabled')).toBeInTheDocument();
+    });
+
+    it('BF1-007: streaming continues after user scrolls and disables auto-scroll', async () => {
+      const { rerender } = customRender(
+        <VirtualizedChatList messages={mockMessages} isStreaming={true} />
+      );
+
+      // User scrolls during streaming
+      act(() => {
+        mockIsScrollingCallback?.(true);
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTitle('Auto-scroll disabled')).toBeInTheDocument();
+      });
+
+      // Add more messages while streaming continues
+      const newMessages = [
+        ...mockMessages,
+        {
+          id: 'msg-4',
+          role: 'assistant' as const,
+          content: 'Additional streaming content',
+          created_at: '2024-01-01T00:00:30Z',
+        },
+      ];
+
+      rerender(<VirtualizedChatList messages={newMessages} isStreaming={true} />);
+
+      // Auto-scroll should remain disabled
+      expect(screen.getByTitle('Auto-scroll disabled')).toBeInTheDocument();
+    });
+
+    it('BF1-008: auto-scroll button state reflects correct state during streaming', async () => {
+      customRender(<VirtualizedChatList messages={mockMessages} isStreaming={true} />);
+
+      const enabledButton = screen.getByTitle('Auto-scroll enabled');
+
+      // Should have blue background when enabled
+      expect(enabledButton).toHaveStyle({ backgroundColor: '#3b82f6' });
+
+      // User scrolls during streaming
+      act(() => {
+        mockIsScrollingCallback?.(true);
+      });
+
+      await waitFor(() => {
+        const disabledButton = screen.getByTitle('Auto-scroll disabled');
+        // Should have white background when disabled
+        expect(disabledButton).toHaveStyle({ backgroundColor: 'rgb(255, 255, 255)' });
       });
     });
   });

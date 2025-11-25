@@ -612,4 +612,355 @@ test.describe('Auto-Scroll Features', () => {
       expect(isAtBottom).toBe(true);
     });
   });
+
+  test.describe('Bug Fix 1: User scroll detection during streaming', () => {
+    test('BF1-E2E-001: User can scroll up during streaming and auto-scroll gets disabled', async ({ page }) => {
+      // Send a message that will trigger streaming
+      await page.fill('.chat-input', 'Write a long detailed explanation about React hooks');
+      await page.press('.chat-input', 'Enter');
+
+      // Wait for streaming to start
+      await page.waitForTimeout(500);
+
+      // Verify auto-scroll is initially enabled
+      const autoScrollButton = page.locator('button[title*="Auto-scroll"]');
+      await expect(autoScrollButton).toHaveAttribute('title', 'Auto-scroll enabled');
+
+      // Scroll up during active streaming
+      await page.evaluate(() => {
+        const container = document.querySelector('[data-testid="virtuoso-container"]');
+        if (container) {
+          container.scrollTop = Math.max(0, container.scrollTop - 300);
+        }
+      });
+
+      // Wait for scroll detection
+      await page.waitForTimeout(500);
+
+      // Auto-scroll should now be disabled
+      await expect(autoScrollButton).toHaveAttribute('title', 'Auto-scroll disabled');
+
+      // Button should have white background (disabled state)
+      const backgroundColor = await autoScrollButton.evaluate((el) => {
+        return window.getComputedStyle(el).backgroundColor;
+      });
+      expect(backgroundColor).toBe('rgb(255, 255, 255)');
+    });
+
+    test('BF1-E2E-002: Auto-scroll button changes from filled blue to outlined when user scrolls during streaming', async ({ page }) => {
+      // Send a message
+      await page.fill('.chat-input', 'Explain TypeScript generics in detail');
+      await page.press('.chat-input', 'Enter');
+
+      await page.waitForTimeout(500);
+
+      const autoScrollButton = page.locator('button[title*="Auto-scroll"]');
+
+      // Verify initial state (filled blue)
+      let backgroundColor = await autoScrollButton.evaluate((el) => {
+        return window.getComputedStyle(el).backgroundColor;
+      });
+      expect(backgroundColor).toBe('rgb(59, 130, 246)'); // #3b82f6
+
+      // Scroll up during streaming
+      await page.evaluate(() => {
+        const container = document.querySelector('[data-testid="virtuoso-container"]');
+        if (container) {
+          container.scrollTop = Math.max(0, container.scrollTop - 200);
+        }
+      });
+
+      await page.waitForTimeout(500);
+
+      // Verify disabled state (white with blue outline)
+      backgroundColor = await autoScrollButton.evaluate((el) => {
+        return window.getComputedStyle(el).backgroundColor;
+      });
+      expect(backgroundColor).toBe('rgb(255, 255, 255)');
+
+      const color = await autoScrollButton.evaluate((el) => {
+        return window.getComputedStyle(el).color;
+      });
+      expect(color).toBe('rgb(59, 130, 246)');
+    });
+
+    test('BF1-E2E-003: User can stay at scrolled position during streaming without being pulled down', async ({ page }) => {
+      // Send a message that will stream for a while
+      await page.fill('.chat-input', 'Write a comprehensive guide about React performance optimization');
+      await page.press('.chat-input', 'Enter');
+
+      await page.waitForTimeout(500);
+
+      // Scroll to top
+      await page.evaluate(() => {
+        const container = document.querySelector('[data-testid="virtuoso-container"]');
+        if (container) {
+          container.scrollTop = 0;
+        }
+      });
+
+      const initialScrollTop = await page.evaluate(() => {
+        const container = document.querySelector('[data-testid="virtuoso-container"]');
+        return container?.scrollTop || 0;
+      });
+
+      await page.waitForTimeout(500);
+
+      // Wait for more streaming content
+      await page.waitForTimeout(1000);
+
+      // Check that scroll position hasn't changed significantly
+      const currentScrollTop = await page.evaluate(() => {
+        const container = document.querySelector('[data-testid="virtuoso-container"]');
+        return container?.scrollTop || 0;
+      });
+
+      // Should still be near the top (within 100px tolerance)
+      expect(Math.abs(currentScrollTop - initialScrollTop)).toBeLessThan(100);
+    });
+
+    test('BF1-E2E-004: User can manually re-enable auto-scroll by clicking button after scrolling up during streaming', async ({ page }) => {
+      // Start streaming
+      await page.fill('.chat-input', 'Tell me about WebAssembly');
+      await page.press('.chat-input', 'Enter');
+
+      await page.waitForTimeout(500);
+
+      // Scroll up during streaming
+      await page.evaluate(() => {
+        const container = document.querySelector('[data-testid="virtuoso-container"]');
+        if (container) {
+          container.scrollTop = 0;
+        }
+      });
+
+      await page.waitForTimeout(500);
+
+      // Verify auto-scroll is disabled
+      const autoScrollButton = page.locator('button[title*="Auto-scroll"]');
+      await expect(autoScrollButton).toHaveAttribute('title', 'Auto-scroll disabled');
+
+      // Click to re-enable
+      await autoScrollButton.click();
+      await page.waitForTimeout(200);
+
+      // Verify auto-scroll is enabled again
+      await expect(autoScrollButton).toHaveAttribute('title', 'Auto-scroll enabled');
+
+      // Wait a moment and verify it scrolls to bottom
+      await page.waitForTimeout(1000);
+
+      const isAtBottom = await page.evaluate(() => {
+        const container = document.querySelector('[data-testid="virtuoso-container"]');
+        if (!container) return false;
+
+        const scrollTop = container.scrollTop;
+        const scrollHeight = container.scrollHeight;
+        const clientHeight = container.clientHeight;
+
+        return scrollHeight - (scrollTop + clientHeight) < 100;
+      });
+
+      expect(isAtBottom).toBe(true);
+    });
+
+    test('BF1-E2E-005: Auto-scroll remains enabled if user does not scroll during streaming', async ({ page }) => {
+      // Start streaming
+      await page.fill('.chat-input', 'Explain Node.js event loop');
+      await page.press('.chat-input', 'Enter');
+
+      await page.waitForTimeout(500);
+
+      const autoScrollButton = page.locator('button[title*="Auto-scroll"]');
+      await expect(autoScrollButton).toHaveAttribute('title', 'Auto-scroll enabled');
+
+      // Wait for streaming to continue without user interaction
+      await page.waitForTimeout(2000);
+
+      // Auto-scroll should still be enabled
+      await expect(autoScrollButton).toHaveAttribute('title', 'Auto-scroll enabled');
+
+      // Should still be at bottom
+      const isAtBottom = await page.evaluate(() => {
+        const container = document.querySelector('[data-testid="virtuoso-container"]');
+        if (!container) return false;
+
+        const scrollTop = container.scrollTop;
+        const scrollHeight = container.scrollHeight;
+        const clientHeight = container.clientHeight;
+
+        return scrollHeight - (scrollTop + clientHeight) < 100;
+      });
+
+      expect(isAtBottom).toBe(true);
+    });
+
+    test('BF1-E2E-006: Scroll detection works even with rapid scroll events during streaming', async ({ page }) => {
+      // Start streaming
+      await page.fill('.chat-input', 'Describe microservices architecture');
+      await page.press('.chat-input', 'Enter');
+
+      await page.waitForTimeout(500);
+
+      // Rapid scroll events
+      await page.evaluate(() => {
+        const container = document.querySelector('[data-testid="virtuoso-container"]');
+        if (container) {
+          container.scrollTop -= 50;
+          setTimeout(() => { if (container) container.scrollTop -= 50; }, 50);
+          setTimeout(() => { if (container) container.scrollTop -= 50; }, 100);
+        }
+      });
+
+      await page.waitForTimeout(500);
+
+      // Auto-scroll should be disabled
+      const autoScrollButton = page.locator('button[title*="Auto-scroll"]');
+      await expect(autoScrollButton).toHaveAttribute('title', 'Auto-scroll disabled');
+    });
+
+    test('BF1-E2E-007: Animation stops when auto-scroll is disabled during streaming', async ({ page }) => {
+      // Start streaming
+      await page.fill('.chat-input', 'What is GraphQL?');
+      await page.press('.chat-input', 'Enter');
+
+      await page.waitForTimeout(500);
+
+      const autoScrollButton = page.locator('button[title*="Auto-scroll"]');
+
+      // Verify animation class is present
+      let hasAnimation = await autoScrollButton.evaluate((el) => {
+        return el.classList.contains('auto-scroll-btn-animated');
+      });
+      expect(hasAnimation).toBe(true);
+
+      // Scroll up to disable
+      await page.evaluate(() => {
+        const container = document.querySelector('[data-testid="virtuoso-container"]');
+        if (container) {
+          container.scrollTop = 0;
+        }
+      });
+
+      await page.waitForTimeout(500);
+
+      // Verify animation class is removed
+      hasAnimation = await autoScrollButton.evaluate((el) => {
+        return el.classList.contains('auto-scroll-btn-animated');
+      });
+      expect(hasAnimation).toBe(false);
+    });
+
+    test('BF1-E2E-008: Multiple messages continue streaming after user disables auto-scroll', async ({ page }) => {
+      // Start streaming
+      await page.fill('.chat-input', 'Explain the differences between SQL and NoSQL');
+      await page.press('.chat-input', 'Enter');
+
+      await page.waitForTimeout(500);
+
+      // Scroll up to disable auto-scroll
+      await page.evaluate(() => {
+        const container = document.querySelector('[data-testid="virtuoso-container"]');
+        if (container) {
+          container.scrollTop = 0;
+        }
+      });
+
+      await page.waitForTimeout(500);
+
+      // Get current message count
+      const messageCountBefore = await page.evaluate(() => {
+        return document.querySelectorAll('[data-testid^="message-"]').length;
+      });
+
+      // Wait for more streaming
+      await page.waitForTimeout(1500);
+
+      // Message should still be streaming (content length should increase or stay same)
+      const messageCountAfter = await page.evaluate(() => {
+        return document.querySelectorAll('[data-testid^="message-"]').length;
+      });
+
+      // Count should be the same (streaming continues in the same message)
+      expect(messageCountAfter).toBeGreaterThanOrEqual(messageCountBefore);
+
+      // Auto-scroll should remain disabled
+      const autoScrollButton = page.locator('button[title*="Auto-scroll"]');
+      await expect(autoScrollButton).toHaveAttribute('title', 'Auto-scroll disabled');
+    });
+
+    test('BF1-E2E-009: Scrolling to bottom manually does not re-enable auto-scroll during streaming', async ({ page }) => {
+      // Start streaming
+      await page.fill('.chat-input', 'What are design patterns?');
+      await page.press('.chat-input', 'Enter');
+
+      await page.waitForTimeout(500);
+
+      // Scroll up
+      await page.evaluate(() => {
+        const container = document.querySelector('[data-testid="virtuoso-container"]');
+        if (container) {
+          container.scrollTop = 0;
+        }
+      });
+
+      await page.waitForTimeout(500);
+
+      const autoScrollButton = page.locator('button[title*="Auto-scroll"]');
+      await expect(autoScrollButton).toHaveAttribute('title', 'Auto-scroll disabled');
+
+      // Manually scroll back to bottom
+      await page.evaluate(() => {
+        const container = document.querySelector('[data-testid="virtuoso-container"]');
+        if (container) {
+          container.scrollTop = container.scrollHeight;
+        }
+      });
+
+      await page.waitForTimeout(500);
+
+      // Auto-scroll should still be disabled (requires button click to re-enable)
+      await expect(autoScrollButton).toHaveAttribute('title', 'Auto-scroll disabled');
+    });
+
+    test('BF1-E2E-010: User experience is smooth when scrolling up during heavy streaming', async ({ page }) => {
+      // Create some initial messages first
+      for (let i = 1; i <= 3; i++) {
+        await page.fill('.chat-input', `Setup message ${i}`);
+        await page.press('.chat-input', 'Enter');
+        await page.waitForTimeout(1000);
+      }
+
+      // Start a long streaming response
+      await page.fill('.chat-input', 'Write a comprehensive tutorial about Docker containers with many examples');
+      await page.press('.chat-input', 'Enter');
+
+      await page.waitForTimeout(500);
+
+      // Scroll to a middle message
+      await page.evaluate(() => {
+        const messages = document.querySelectorAll('[data-testid^="message-"]');
+        if (messages.length >= 2) {
+          messages[1].scrollIntoView({ behavior: 'smooth' });
+        }
+      });
+
+      await page.waitForTimeout(500);
+
+      // Verify we can still see the middle message (page didn't auto-scroll away)
+      const middleMessageVisible = await page.evaluate(() => {
+        const messages = document.querySelectorAll('[data-testid^="message-"]');
+        if (messages.length < 2) return false;
+
+        const rect = messages[1].getBoundingClientRect();
+        return rect.top >= 0 && rect.top <= window.innerHeight;
+      });
+
+      expect(middleMessageVisible).toBe(true);
+
+      // Auto-scroll should be disabled
+      const autoScrollButton = page.locator('button[title*="Auto-scroll"]');
+      await expect(autoScrollButton).toHaveAttribute('title', 'Auto-scroll disabled');
+    });
+  });
 });

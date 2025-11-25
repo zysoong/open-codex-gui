@@ -39,29 +39,30 @@ export const VirtualizedChatList = ({ messages, isStreaming, streamEvents = [] }
   const virtuosoRef = useRef<VirtuosoHandle>(null);
   const [autoScrollEnabled, setAutoScrollEnabled] = useState(true);
   const [isAtBottom, setIsAtBottom] = useState(true);
-  const userScrolledRef = useRef(false);
+  const autoScrollingRef = useRef(false);
 
   // Detect when user manually scrolls
   const handleScroll = useCallback((isScrolling: boolean) => {
-    if (isScrolling && !isStreaming) {
-      userScrolledRef.current = true;
+    // Only disable auto-scroll if:
+    // 1. User is scrolling (isScrolling = true)
+    // 2. Auto-scroll is currently enabled
+    // 3. We're not programmatically scrolling (autoScrollingRef = false)
+    if (isScrolling && autoScrollEnabled && !autoScrollingRef.current) {
+      setAutoScrollEnabled(false);
     }
-  }, [isStreaming]);
+  }, [autoScrollEnabled]);
 
   // Detect if user is at bottom
   const handleAtBottomStateChange = useCallback((atBottom: boolean) => {
     setIsAtBottom(atBottom);
-
-    // If user scrolls away from bottom, disable auto-scroll
-    if (!atBottom && userScrolledRef.current) {
-      setAutoScrollEnabled(false);
-      userScrolledRef.current = false;
-    }
   }, []);
 
   // Auto-scroll to bottom when new message arrives OR during streaming (only if toggle is ON)
   useEffect(() => {
     if (messages.length > 0 && autoScrollEnabled) {
+      // Mark that we're about to programmatically scroll
+      autoScrollingRef.current = true;
+
       // Use setTimeout to ensure DOM has updated with new streaming content
       const timeoutId = setTimeout(() => {
         if (virtuosoRef.current) {
@@ -72,9 +73,17 @@ export const VirtualizedChatList = ({ messages, isStreaming, streamEvents = [] }
             behavior: isStreaming ? 'auto' : 'smooth',
           });
         }
+
+        // Reset the flag after scrolling completes (with a delay to ensure scroll finishes)
+        setTimeout(() => {
+          autoScrollingRef.current = false;
+        }, isStreaming ? 500 : 200);
       }, isStreaming ? 0 : 10);
 
-      return () => clearTimeout(timeoutId);
+      return () => {
+        clearTimeout(timeoutId);
+        autoScrollingRef.current = false;
+      };
     }
   }, [messages.length, isStreaming, autoScrollEnabled, streamEvents]);
 

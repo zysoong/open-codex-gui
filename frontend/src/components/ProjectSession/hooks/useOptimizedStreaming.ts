@@ -30,10 +30,13 @@ interface UseOptimizedStreamingProps {
 }
 
 export const useOptimizedStreaming = ({ sessionId, initialMessages = [] }: UseOptimizedStreamingProps) => {
-  const [messages, setMessages] = useState<Message[]>(initialMessages);
+  // Initialize with empty array - we'll update from initialMessages in useEffect
+  // This prevents messages from disappearing when component remounts during streaming
+  const [messages, setMessages] = useState<Message[]>([]);
   const [streamEvents, setStreamEvents] = useState<StreamEvent[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const hasInitializedRef = useRef(false);
 
   const wsRef = useRef<WebSocket | null>(null);
   const queryClient = useQueryClient();
@@ -130,39 +133,43 @@ export const useOptimizedStreaming = ({ sessionId, initialMessages = [] }: UseOp
         break;
 
       case 'action_args_chunk':
-        eventBufferRef.current.push({
+        // Display argument chunks immediately for real-time streaming (📝 emoji)
+        // This makes file_edit, file_write, etc. show progress as LLM generates args
+        setStreamEvents(prev => [...prev, {
           type: 'action_args_chunk',
           content: data.partial_args || '',
           tool: data.tool,
           partial_args: data.partial_args,
           step: data.step,
-        });
+        }]);
         break;
 
       case 'action':
         // Remove all action_args_chunk events for this tool from existing state
         // This prevents retroactive filtering during render
-        setStreamEvents(prev =>
-          prev.filter(e => !(e.type === 'action_args_chunk' && e.tool === data.tool))
-        );
-
-        eventBufferRef.current.push({
-          type: 'action',
-          content: `Using tool: ${data.tool}`,
-          tool: data.tool,
-          args: data.args,
-          step: data.step,
-        });
+        // Then immediately add the action event (not buffered) for instant display
+        setStreamEvents(prev => [
+          ...prev.filter(e => !(e.type === 'action_args_chunk' && e.tool === data.tool)),
+          {
+            type: 'action',
+            content: `Using tool: ${data.tool}`,
+            tool: data.tool,
+            args: data.args,
+            step: data.step,
+          }
+        ]);
         break;
 
       case 'observation':
-        eventBufferRef.current.push({
+        // Observations should be displayed immediately, not buffered
+        // This ensures file_edit and other tool results appear in real-time
+        setStreamEvents(prev => [...prev, {
           type: 'observation',
           content: data.content,
           success: data.success,
           metadata: data.metadata,
           step: data.step,
-        });
+        }]);
         break;
 
       case 'end':
@@ -294,9 +301,24 @@ export const useOptimizedStreaming = ({ sessionId, initialMessages = [] }: UseOp
   }, [sessionId, handleWebSocketMessage]);
 
   // Update messages when external data changes
+  // This handles both initial load and updates when navigating back to the chat
   useEffect(() => {
     if (initialMessages && initialMessages.length > 0) {
-      setMessages(initialMessages);
+      // On first mount, always set messages from initialMessages
+      if (!hasInitializedRef.current) {
+        setMessages(initialMessages);
+        hasInitializedRef.current = true;
+        return;
+      }
+
+      // On subsequent updates, only update if we have more messages than before
+      // This prevents messages from disappearing when navigating back during streaming
+      setMessages(prev => {
+        if (prev.length > 0 && initialMessages.length <= prev.length) {
+          return prev;
+        }
+        return initialMessages;
+      });
     }
   }, [initialMessages]);
 
