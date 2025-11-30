@@ -117,6 +117,8 @@ export const AssistantUIMessage: React.FC<AssistantUIMessageProps> = ({
         parts.push({ type: 'text', content: message.content, isStreaming: false });
       }
 
+      console.log(message)
+
       // Add persisted agent actions as tool calls
       if (message.agent_actions && Array.isArray(message.agent_actions)) {
         message.agent_actions
@@ -133,7 +135,7 @@ export const AssistantUIMessage: React.FC<AssistantUIMessageProps> = ({
               toolName: action.action_type || 'unknown',
               args: action.action_input || {},
               argsText: JSON.stringify(action.action_input || {}, null, 2),
-              result: action.action_output,
+              result: action.action_metadata.is_binary ? action.action_metadata : action.action_output,
               isError: action.status !== 'success',
               status: { type: 'complete' } as ToolCallMessagePartStatus,
               addResult: () => {},

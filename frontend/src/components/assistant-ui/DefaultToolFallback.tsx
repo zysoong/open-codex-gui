@@ -9,6 +9,7 @@ import React from 'react';
 import type { ToolCallMessagePartProps } from '@assistant-ui/react';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import {ObservationContent} from "@/components/ProjectSession/components/MessageHelpers.tsx";
 
 const getFileExtension = (filePath: string): string => {
   const match = filePath.match(/\.([^.]+)$/);
@@ -48,6 +49,7 @@ export const DefaultToolFallback: React.FC<ToolCallMessagePartProps> = ({
 }) => {
   const isRunning = status?.type === 'running';
   const hasResult = result !== undefined;
+  const isBinary = result.is_binary == true;
 
   // Special handling for file write operations
   const isFileWrite = toolName && (
@@ -175,7 +177,7 @@ export const DefaultToolFallback: React.FC<ToolCallMessagePartProps> = ({
       )}
 
       {/* Tool Result */}
-      {hasResult && (
+      {hasResult && !isBinary && (
         <div className="tool-call-result" style={{
           padding: '16px',
           background: isError ? '#fef2f2' : '#f0fdf4',
@@ -223,6 +225,15 @@ export const DefaultToolFallback: React.FC<ToolCallMessagePartProps> = ({
           </pre>
         </div>
       )}
+
+        {hasResult && isBinary && (
+            <div className={`observation success`}>
+                <ObservationContent
+                    content=''
+                    metadata={result}
+                />
+            </div>
+        )}
 
       {/* Incomplete Status */}
       {status?.type === 'incomplete' && (
