@@ -6,7 +6,6 @@
  */
 
 import React, { useMemo } from 'react';
-import { Streamdown } from 'streamdown';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
@@ -15,6 +14,67 @@ import { DefaultToolFallback } from './DefaultToolFallback';
 import { Message, StreamEvent } from '@/types';
 
 import type { ToolCallMessagePartStatus } from '@assistant-ui/react';
+
+// Simple streaming text component that doesn't use dynamic imports
+const StreamingText: React.FC<{ content: string }> = ({ content }) => {
+  // Simple markdown parsing without code highlighting during streaming
+  const renderContent = () => {
+    // Split by code blocks
+    const parts = content.split(/(```[\s\S]*?```)/g);
+
+    return parts.map((part, index) => {
+      if (part.startsWith('```') && part.endsWith('```')) {
+        // Extract code content
+        const codeContent = part.slice(3, -3);
+        const firstNewline = codeContent.indexOf('\n');
+        const language = firstNewline > 0 ? codeContent.slice(0, firstNewline) : '';
+        const code = firstNewline > 0 ? codeContent.slice(firstNewline + 1) : codeContent;
+
+        return (
+          <pre key={index} style={{
+            backgroundColor: '#f6f8fa',
+            padding: '12px',
+            borderRadius: '6px',
+            overflowX: 'auto',
+            margin: '12px 0',
+            fontSize: '13px',
+            fontFamily: 'Monaco, Consolas, monospace'
+          }}>
+            <code>{code || language}</code>
+          </pre>
+        );
+      } else {
+        // Render regular text with basic markdown
+        const formatted = part
+          .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+          .replace(/\*(.*?)\*/g, '<em>$1</em>')
+          .replace(/`([^`]+)`/g, '<code style="background: #f6f8fa; padding: 2px 4px; border-radius: 3px;">$1</code>')
+          .replace(/\n/g, '<br />');
+
+        return (
+          <span
+            key={index}
+            dangerouslySetInnerHTML={{ __html: formatted }}
+          />
+        );
+      }
+    });
+  };
+
+  return (
+    <div style={{ position: 'relative' }}>
+      {renderContent()}
+      <span style={{
+        display: 'inline-block',
+        width: '8px',
+        height: '20px',
+        backgroundColor: '#111827',
+        marginLeft: '2px',
+        animation: 'blink 1s infinite',
+      }} />
+    </div>
+  );
+};
 
 interface AssistantUIMessageProps {
   message: Message;
@@ -149,8 +209,6 @@ export const AssistantUIMessage: React.FC<AssistantUIMessageProps> = ({
         parts.push({ type: 'text', content: message.content, isStreaming: false });
       }
 
-      console.log(message)
-
       // Add persisted agent actions as tool calls
       if (message.agent_actions && Array.isArray(message.agent_actions)) {
         message.agent_actions
@@ -184,17 +242,7 @@ export const AssistantUIMessage: React.FC<AssistantUIMessageProps> = ({
     if (part.type === 'text') {
       if (part.isStreaming) {
         return (
-          <div key={index} style={{ position: 'relative' }}>
-            <Streamdown>{part.content}</Streamdown>
-            <span style={{
-              display: 'inline-block',
-              width: '8px',
-              height: '20px',
-              backgroundColor: '#111827',
-              marginLeft: '2px',
-              animation: 'blink 1s infinite',
-            }} />
-          </div>
+          <StreamingText key={index} content={part.content} />
         );
       } else {
         return (

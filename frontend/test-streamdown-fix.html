@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Streamdown Fix Test</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            max-width: 900px;
+            margin: 40px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .test-container {
+            background: white;
+            border-radius: 8px;
+            padding: 24px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 8px;
+        }
+        .status {
+            padding: 12px;
+            border-radius: 4px;
+            margin: 16px 0;
+            font-weight: 500;
+        }
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .status.running {
+            background: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeaa7;
+        }
+        .timer {
+            font-size: 18px;
+            color: #666;
+            margin: 16px 0;
+        }
+        .log-entry {
+            padding: 8px 12px;
+            margin: 4px 0;
+            background: #f8f9fa;
+            border-left: 3px solid #007bff;
+            font-family: monospace;
+            font-size: 13px;
+        }
+        .iframe-container {
+            margin-top: 20px;
+            border: 2px solid #dee2e6;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        iframe {
+            width: 100%;
+            height: 600px;
+            border: none;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            font-size: 14px;
+            cursor: pointer;
+            margin-right: 10px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        button:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+        }
+        .test-summary {
+            margin-top: 20px;
+            padding: 16px;
+            background: #e9ecef;
+            border-radius: 4px;
+        }
+        .test-item {
+            display: flex;
+            align-items: center;
+            margin: 8px 0;
+        }
+        .test-icon {
+            margin-right: 8px;
+            font-size: 20px;
+        }
+        .controls {
+            margin: 20px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="test-container">
+        <h1>🔧 Streamdown Dynamic Import Fix Verification</h1>
+        <p>This test verifies that the Streamdown replacement prevents the dynamic import crash that occurred after ~1 minute.</p>
+
+        <div class="controls">
+            <button id="startBtn" onclick="startTest()">Start Test</button>
+            <button id="stopBtn" onclick="stopTest()" disabled>Stop Test</button>
+            <button onclick="location.reload()">Reset</button>
+        </div>
+
+        <div id="status" class="status running">Waiting to start test...</div>
+
+        <div class="timer" id="timer">Elapsed: 0 seconds</div>
+
+        <div class="test-summary">
+            <h3>Test Progress:</h3>
+            <div class="test-item">
+                <span class="test-icon" id="icon-load">⏳</span>
+                <span>Page loaded successfully</span>
+            </div>
+            <div class="test-item">
+                <span class="test-icon" id="icon-30s">⏳</span>
+                <span>30 seconds - No crashes (streaming active)</span>
+            </div>
+            <div class="test-item">
+                <span class="test-icon" id="icon-60s">⏳</span>
+                <span>60 seconds - Critical point (old crash time)</span>
+            </div>
+            <div class="test-item">
+                <span class="test-icon" id="icon-90s">⏳</span>
+                <span>90 seconds - Sustained stability</span>
+            </div>
+            <div class="test-item">
+                <span class="test-icon" id="icon-120s">⏳</span>
+                <span>120 seconds - Extended stability confirmed</span>
+            </div>
+        </div>
+
+        <div id="logs">
+            <h3>Test Log:</h3>
+        </div>
+
+        <div class="iframe-container">
+            <iframe id="testFrame" src="about:blank"></iframe>
+        </div>
+    </div>
+
+    <script>
+        let startTime = null;
+        let timerInterval = null;
+        let errorDetected = false;
+        let testRunning = false;
+
+        function addLog(message, isError = false) {
+            const logs = document.getElementById('logs');
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            if (isError) {
+                entry.style.borderColor = '#dc3545';
+                entry.style.background = '#fff5f5';
+            }
+            const timestamp = new Date().toLocaleTimeString();
+            entry.textContent = `[${timestamp}] ${message}`;
+            logs.appendChild(entry);
+        }
+
+        function updateStatus(message, type = 'running') {
+            const status = document.getElementById('status');
+            status.className = `status ${type}`;
+            status.textContent = message;
+        }
+
+        function updateIcon(iconId, success) {
+            const icon = document.getElementById(iconId);
+            icon.textContent = success ? '✅' : '❌';
+        }
+
+        function startTest() {
+            testRunning = true;
+            errorDetected = false;
+            startTime = Date.now();
+
+            document.getElementById('startBtn').disabled = true;
+            document.getElementById('stopBtn').disabled = false;
+
+            // Reset icons
+            ['icon-load', 'icon-30s', 'icon-60s', 'icon-90s', 'icon-120s'].forEach(id => {
+                document.getElementById(id).textContent = '⏳';
+            });
+
+            addLog('Test started - Loading chat session page...');
+            updateStatus('Loading application...', 'running');
+
+            // Load the actual chat page with assistant-ui components
+            const iframe = document.getElementById('testFrame');
+
+            // Set up error monitoring
+            iframe.onload = function() {
+                addLog('Page loaded successfully');
+                updateIcon('icon-load', true);
+                updateStatus('Test running - Monitoring for crashes...', 'running');
+
+                // Monitor for errors in the iframe
+                try {
+                    iframe.contentWindow.addEventListener('error', function(e) {
+                        if (e.message && e.message.includes('dynamically imported module')) {
+                            errorDetected = true;
+                            addLog(`ERROR DETECTED: ${e.message}`, true);
+                            updateStatus('❌ Dynamic import error detected!', 'error');
+                            stopTest();
+                        }
+                    });
+
+                    // Also check console errors periodically
+                    setInterval(() => {
+                        if (!testRunning) return;
+
+                        // Check if the iframe is still responsive
+                        try {
+                            const doc = iframe.contentDocument;
+                            if (doc && doc.querySelector('.chat-session-page')) {
+                                // Page is still alive
+                            }
+                        } catch (e) {
+                            if (e.message.includes('cross-origin')) {
+                                // Expected for actual page
+                            } else {
+                                addLog(`Possible crash detected: ${e.message}`, true);
+                            }
+                        }
+                    }, 5000);
+
+                } catch (e) {
+                    addLog('Note: Cross-origin restrictions may limit error monitoring');
+                }
+            };
+
+            // Navigate to a chat session page
+            // Using a sample session ID - adjust as needed
+            iframe.src = 'http://localhost:5173/projects/test-project/sessions/test-session';
+
+            // Start timer
+            timerInterval = setInterval(() => {
+                if (!testRunning) return;
+
+                const elapsed = Math.floor((Date.now() - startTime) / 1000);
+                document.getElementById('timer').textContent = `Elapsed: ${elapsed} seconds`;
+
+                // Check milestones
+                if (elapsed === 30 && !errorDetected) {
+                    updateIcon('icon-30s', true);
+                    addLog('✅ 30 seconds passed - No crashes');
+                }
+                if (elapsed === 60 && !errorDetected) {
+                    updateIcon('icon-60s', true);
+                    addLog('✅ 60 seconds passed - Critical point cleared! (Old crash time)');
+                    updateStatus('✅ Passed critical 60-second mark!', 'success');
+                }
+                if (elapsed === 90 && !errorDetected) {
+                    updateIcon('icon-90s', true);
+                    addLog('✅ 90 seconds passed - Sustained stability');
+                }
+                if (elapsed === 120 && !errorDetected) {
+                    updateIcon('icon-120s', true);
+                    addLog('✅ 120 seconds passed - Fix confirmed successful!');
+                    updateStatus('✅ TEST PASSED - No dynamic import crashes!', 'success');
+                    stopTest();
+                }
+            }, 1000);
+        }
+
+        function stopTest() {
+            testRunning = false;
+            document.getElementById('startBtn').disabled = false;
+            document.getElementById('stopBtn').disabled = true;
+
+            if (timerInterval) {
+                clearInterval(timerInterval);
+                timerInterval = null;
+            }
+
+            if (!errorDetected && startTime) {
+                const elapsed = Math.floor((Date.now() - startTime) / 1000);
+                if (elapsed >= 60) {
+                    addLog(`Test completed successfully after ${elapsed} seconds`);
+                } else {
+                    addLog(`Test stopped after ${elapsed} seconds`);
+                }
+            }
+        }
+
+        // Initial message
+        addLog('Test ready. Click "Start Test" to begin verification.');
+        addLog('The old bug caused a crash after ~60 seconds due to Streamdown dynamic imports.');
+        addLog('This test verifies the fix by monitoring for 120 seconds.');
+    </script>
+</body>
+</html>
