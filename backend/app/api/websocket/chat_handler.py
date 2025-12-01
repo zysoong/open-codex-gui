@@ -13,6 +13,13 @@ from app.core.agent.executor import ReActAgent
 from app.core.agent.tools import ToolRegistry, BashTool, FileReadTool, FileWriteTool, FileEditTool, SearchTool, SetupEnvironmentTool
 from app.core.sandbox.manager import get_container_manager
 from app.api.websocket.task_registry import get_agent_task_registry
+from collections import deque
+
+
+# Global chunk buffer for reconnection support
+# Maps session_id -> deque of chunks
+_chunk_buffers: Dict[str, deque] = {}
+MAX_BUFFER_SIZE = 200  # Keep last 200 chunks per session
 
 
 def is_vision_model(model_name: str) -> bool:
@@ -99,12 +106,20 @@ class ChatWebSocketHandler:
         self.db = db
         self.current_agent_task = None
         self.cancel_event = None
+        self.task_registry = get_agent_task_registry()  # Get global task registry
 
     async def handle_connection(self, session_id: str):
         """Handle WebSocket connection for a chat session."""
         await self.websocket.accept()
 
         try:
+            # Check for existing running task
+            existing_task = await self.task_registry.get_task(session_id)
+            if existing_task and existing_task.status == 'running':
+                print(f"[TASK REGISTRY] Found existing running task for session {session_id}")
+                await self._attach_to_existing_stream(session_id, existing_task)
+                return  # Exit after attaching to existing stream
+
             # Verify session exists and get project config
             session_query = select(ChatSession).where(ChatSession.id == session_id)
             session_result = await self.db.execute(session_query)
@@ -141,6 +156,10 @@ class ChatWebSocketHandler:
                 print(f"[CHAT HANDLER] Received message type: {message_data.get('type')}")
 
                 if message_data.get("type") == "message":
+                    # Create cancel event if needed
+                    if self.cancel_event is None:
+                        self.cancel_event = asyncio.Event()
+
                     # Run message handling in background so we can receive cancel messages
                     self.current_agent_task = asyncio.create_task(
                         self._handle_user_message(
@@ -149,6 +168,15 @@ class ChatWebSocketHandler:
                             agent_config
                         )
                     )
+
+                    # Register task in global registry for reconnection support
+                    await self.task_registry.register_task(
+                        session_id=session_id,
+                        message_id="pending",  # Will be updated when message is created
+                        task=self.current_agent_task,
+                        cancel_event=self.cancel_event
+                    )
+                    print(f"[TASK REGISTRY] Registered new task for session {session_id}")
                 elif message_data.get("type") == "cancel":
                     # User wants to cancel the current agent execution
                     print(f"[CHAT HANDLER] ⚠️ CANCEL REQUEST RECEIVED!")
@@ -281,6 +309,8 @@ class ChatWebSocketHandler:
         agent_config: AgentConfiguration
     ):
         """Handle simple LLM response without agent (with incremental saving)."""
+        global _chunk_buffers
+
         # Add system instructions if present
         messages = []
         if agent_config.system_instructions:
@@ -303,6 +333,12 @@ class ChatWebSocketHandler:
         await self.db.flush()
         await self.db.commit()
         print(f"[SIMPLE RESPONSE] Created assistant message {assistant_message.id} at start")
+
+        # Update task registry with actual message ID
+        existing_task = await self.task_registry.get_task(session_id)
+        if existing_task:
+            existing_task.message_id = assistant_message.id
+            print(f"[TASK REGISTRY] Updated task with message ID {assistant_message.id}")
 
         # Create cancel event
         self.cancel_event = asyncio.Event()
@@ -339,11 +375,18 @@ class ChatWebSocketHandler:
                     assistant_content += chunk
                     chunks_since_commit += 1
 
+                    # Buffer chunk for reconnection support
+                    chunk_data = {
+                        "type": "chunk",
+                        "content": chunk
+                    }
+
+                    if session_id not in _chunk_buffers:
+                        _chunk_buffers[session_id] = deque(maxlen=MAX_BUFFER_SIZE)
+                    _chunk_buffers[session_id].append(chunk_data)
+
                     try:
-                        await self.websocket.send_json({
-                            "type": "chunk",
-                            "content": chunk
-                        })
+                        await self.websocket.send_json(chunk_data)
                     except:
                         print(f"[SIMPLE RESPONSE] WebSocket disconnected during chunk, continuing...")
 
@@ -386,6 +429,13 @@ class ChatWebSocketHandler:
         except:
             print(f"[SIMPLE RESPONSE] WebSocket disconnected, cannot send end message")
 
+        # Mark task as completed in registry
+        await self.task_registry.mark_completed(session_id, 'completed' if not cancelled else 'cancelled')
+
+        # Clear chunk buffer for this session
+        if session_id in _chunk_buffers:
+            del _chunk_buffers[session_id]
+
     async def _handle_agent_response(
         self,
         session_id: str,
@@ -424,6 +474,8 @@ class ChatWebSocketHandler:
         agent_config: AgentConfiguration
     ):
         """Implementation of agent response handling with incremental saving."""
+        global _chunk_buffers
+
         # Get container manager
         container_manager = get_container_manager()
 
@@ -484,6 +536,12 @@ class ChatWebSocketHandler:
         await self.db.flush()  # Get the message ID
         await self.db.commit()  # Commit to save it
         print(f"[AGENT] Created assistant message {assistant_message.id} at start of execution")
+
+        # Update task registry with actual message ID
+        existing_task = await self.task_registry.get_task(session_id)
+        if existing_task:
+            existing_task.message_id = assistant_message.id
+            print(f"[TASK REGISTRY] Updated task with message ID {assistant_message.id}")
 
         # Create cancel event
         self.cancel_event = asyncio.Event()
@@ -658,12 +716,19 @@ class ChatWebSocketHandler:
                     assistant_content += chunk
                     chunks_since_commit += 1
 
+                    # Buffer chunk for reconnection support
+                    chunk_data = {
+                        "type": "chunk",
+                        "content": chunk
+                    }
+
+                    if session_id not in _chunk_buffers:
+                        _chunk_buffers[session_id] = deque(maxlen=MAX_BUFFER_SIZE)
+                    _chunk_buffers[session_id].append(chunk_data)
+
                     # Forward chunk to frontend if WebSocket connected
                     try:
-                        await self.websocket.send_json({
-                            "type": "chunk",
-                            "content": chunk
-                        })
+                        await self.websocket.send_json(chunk_data)
                     except:
                         print(f"[AGENT] WebSocket disconnected during chunk, continuing...")
 
@@ -752,6 +817,16 @@ class ChatWebSocketHandler:
             })
         except:
             print(f"[AGENT] WebSocket disconnected, cannot send end message")
+
+        # Mark task as completed in registry
+        status = 'cancelled' if cancelled else ('error' if has_error else 'completed')
+        await self.task_registry.mark_completed(session_id, status)
+        print(f"[TASK REGISTRY] Marked task as {status} for session {session_id}")
+
+        # Clear chunk buffer for this session
+        if session_id in _chunk_buffers:
+            del _chunk_buffers[session_id]
+            print(f"[TASK REGISTRY] Cleared chunk buffer for session {session_id}")
 
     async def _get_conversation_history(
         self,
@@ -923,3 +998,43 @@ Respond with ONLY the title, nothing else. The title should capture the main top
             print(f"[TITLE GEN] Error generating title: {str(e)}")
             import traceback
             traceback.print_exc()
+
+    async def _attach_to_existing_stream(self, session_id: str, existing_task):
+        """Attach new WebSocket connection to an existing streaming task."""
+        global _chunk_buffers
+
+        print(f"[TASK REGISTRY] Attaching to existing stream for session {session_id}")
+
+        # Send notification that we're resuming a stream
+        await self.websocket.send_json({
+            "type": "resuming_stream",
+            "message_id": existing_task.message_id
+        })
+
+        # Send buffered chunks if available
+        if session_id in _chunk_buffers:
+            buffer = _chunk_buffers[session_id]
+            print(f"[TASK REGISTRY] Sending {len(buffer)} buffered chunks")
+
+            for chunk in buffer:
+                try:
+                    await self.websocket.send_json(chunk)
+                    await asyncio.sleep(0.001)  # Small delay to avoid overwhelming client
+                except:
+                    print(f"[TASK REGISTRY] Failed to send buffered chunk")
+                    break
+
+        # Keep WebSocket open and wait for task to complete
+        try:
+            while existing_task.status == 'running' and not existing_task.task.done():
+                await asyncio.sleep(0.1)
+
+                # Check if WebSocket is still connected
+                try:
+                    await self.websocket.send_json({"type": "heartbeat"})
+                except:
+                    print(f"[TASK REGISTRY] WebSocket disconnected while waiting for task")
+                    break
+
+        except WebSocketDisconnect:
+            print(f"[TASK REGISTRY] WebSocket disconnected from resumed stream")
