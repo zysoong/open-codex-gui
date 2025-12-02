@@ -19,7 +19,7 @@ from collections import deque
 # Global chunk buffer for reconnection support
 # Maps session_id -> deque of chunks
 _chunk_buffers: Dict[str, deque] = {}
-MAX_BUFFER_SIZE = 200  # Keep last 200 chunks per session
+MAX_BUFFER_SIZE = 1000  # Keep last 1000 chunks per session (increased from 200 to handle longer responses)
 
 
 def is_vision_model(model_name: str) -> bool:
@@ -1006,54 +1006,90 @@ Respond with ONLY the title, nothing else. The title should capture the main top
         print(f"[TASK REGISTRY] Attaching to existing stream for session {session_id}")
 
         # Send notification that we're resuming a stream
-        await self.websocket.send_json({
-            "type": "resuming_stream",
-            "message_id": existing_task.message_id
-        })
+        try:
+            await self.websocket.send_json({
+                "type": "resuming_stream",
+                "message_id": existing_task.message_id
+            })
+        except WebSocketDisconnect:
+            print(f"[TASK REGISTRY] WebSocket already disconnected")
+            return
+
+        # Track the last chunk sent using a unique identifier
+        last_chunk_sent = None
+        ws_connected = True
 
         # Send buffered chunks if available
-        last_sent_index = 0
         if session_id in _chunk_buffers:
             buffer = _chunk_buffers[session_id]
             # Create a snapshot of the buffer to avoid "deque mutated during iteration" error
-            # The streaming task might still be adding chunks while we're iterating
             buffer_snapshot = list(buffer)
             print(f"[TASK REGISTRY] Sending {len(buffer_snapshot)} buffered chunks")
 
             for chunk in buffer_snapshot:
+                if not ws_connected:
+                    break
                 try:
                     await self.websocket.send_json(chunk)
+                    last_chunk_sent = chunk  # Track last successful send
                     await asyncio.sleep(0.001)  # Small delay to avoid overwhelming client
-                except:
-                    print(f"[TASK REGISTRY] Failed to send buffered chunk")
+                except (WebSocketDisconnect, ConnectionError, Exception) as e:
+                    print(f"[TASK REGISTRY] WebSocket disconnected while sending buffered chunks: {e}")
+                    ws_connected = False
                     break
 
-            last_sent_index = len(buffer_snapshot)
-
         # Keep WebSocket open and forward new chunks as they arrive
-        try:
-            while existing_task.status == 'running' and not existing_task.task.done():
+        while ws_connected and existing_task.status == 'running' and not existing_task.task.done():
+            try:
                 # Check for new chunks in the buffer
                 if session_id in _chunk_buffers:
                     buffer = _chunk_buffers[session_id]
-                    current_buffer_size = len(buffer)
+                    buffer_snapshot = list(buffer)
+
+                    # Find where we left off
+                    start_index = 0
+                    if last_chunk_sent is not None:
+                        # Find the last sent chunk in the current buffer
+                        for i, chunk in enumerate(buffer_snapshot):
+                            if chunk == last_chunk_sent:
+                                start_index = i + 1
+                                break
 
                     # Send any new chunks that arrived since last check
-                    if current_buffer_size > last_sent_index:
-                        new_chunks = list(buffer)[last_sent_index:]
-                        print(f"[TASK REGISTRY] Forwarding {len(new_chunks)} new chunks")
+                    if start_index < len(buffer_snapshot):
+                        new_chunks = buffer_snapshot[start_index:]
+                        print(f"[TASK REGISTRY] Forwarding {len(new_chunks)} new chunks (from index {start_index})")
 
                         for chunk in new_chunks:
                             try:
                                 await self.websocket.send_json(chunk)
+                                last_chunk_sent = chunk
                                 await asyncio.sleep(0.001)  # Small delay between chunks
-                            except:
-                                print(f"[TASK REGISTRY] Failed to send new chunk")
-                                return
-
-                        last_sent_index = current_buffer_size
+                            except (WebSocketDisconnect, ConnectionError, Exception) as e:
+                                print(f"[TASK REGISTRY] WebSocket disconnected while forwarding: {e}")
+                                ws_connected = False
+                                break
 
                 await asyncio.sleep(0.05)  # Check for new chunks every 50ms
 
-        except WebSocketDisconnect:
-            print(f"[TASK REGISTRY] WebSocket disconnected from resumed stream")
+            except WebSocketDisconnect:
+                print(f"[TASK REGISTRY] WebSocket disconnected from resumed stream")
+                ws_connected = False
+                break
+            except Exception as e:
+                print(f"[TASK REGISTRY] Error in chunk forwarding loop: {e}")
+                ws_connected = False
+                break
+
+        # If task completed successfully, send completion message
+        if ws_connected and existing_task.task.done() and existing_task.status == 'completed':
+            try:
+                print(f"[TASK REGISTRY] Task completed, sending end message")
+                await self.websocket.send_json({
+                    "type": "end",
+                    "message": "Stream completed"
+                })
+            except:
+                print(f"[TASK REGISTRY] Failed to send completion message")
+
+        print(f"[TASK REGISTRY] Exiting _attach_to_existing_stream (ws_connected={ws_connected}, task_status={existing_task.status})")
