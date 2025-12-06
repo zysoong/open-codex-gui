@@ -8,16 +8,18 @@
  * - followOutput="smooth" handles new content scrolling automatically
  * - atBottomStateChange tracks when user scrolls away from bottom
  * - No manual scroll effects needed - let Virtuoso handle it
+ *
+ * Now works with ContentBlocks instead of Messages.
  */
 
-import { useRef, forwardRef, memo, useCallback } from 'react';
+import { useRef, forwardRef, memo, useCallback, useMemo } from 'react';
 import { Virtuoso, VirtuosoHandle } from 'react-virtuoso';
 import { AssistantUIMessage } from './AssistantUIMessage';
 import './AssistantUIChat.css';
-import {Message, StreamEvent} from "@/types";
+import { ContentBlock, StreamEvent } from "@/types";
 
 interface AssistantUIChatListProps {
-  messages: Message[];
+  blocks: ContentBlock[];
   isStreaming: boolean;
   streamEvents?: StreamEvent[];
 }
@@ -40,19 +42,108 @@ CustomScroller.displayName = 'CustomScroller';
 const MemoizedAssistantUIMessage = memo(AssistantUIMessage, (prevProps, nextProps) => {
   // Only re-render if essential properties change
   return (
-    prevProps.message.id === nextProps.message.id &&
-    prevProps.message.content === nextProps.message.content &&
+    prevProps.block.id === nextProps.block.id &&
+    prevProps.block.content?.text === nextProps.block.content?.text &&
     prevProps.isStreaming === nextProps.isStreaming &&
-    prevProps.streamEvents?.length === nextProps.streamEvents?.length
+    prevProps.streamEvents?.length === nextProps.streamEvents?.length &&
+    prevProps.toolBlocks?.length === nextProps.toolBlocks?.length
   );
 });
 
+/**
+ * Group content blocks into display groups:
+ * - user_text blocks become individual items
+ * - assistant_text blocks with their associated tool_call and tool_result blocks become a single group
+ */
+interface DisplayGroup {
+  type: 'user' | 'assistant';
+  mainBlock: ContentBlock;
+  toolBlocks: ContentBlock[];  // tool_call and tool_result blocks associated with this assistant response
+}
+
+function groupBlocks(blocks: ContentBlock[]): DisplayGroup[] {
+  const groups: DisplayGroup[] = [];
+  let currentAssistantGroup: DisplayGroup | null = null;
+
+  // Sort by sequence_number to ensure correct order
+  const sortedBlocks = [...blocks].sort((a, b) => a.sequence_number - b.sequence_number);
+
+  for (const block of sortedBlocks) {
+    if (block.block_type === 'user_text') {
+      // Flush any pending assistant group
+      if (currentAssistantGroup) {
+        groups.push(currentAssistantGroup);
+        currentAssistantGroup = null;
+      }
+      groups.push({
+        type: 'user',
+        mainBlock: block,
+        toolBlocks: [],
+      });
+    } else if (block.block_type === 'assistant_text') {
+      // Flush any pending assistant group
+      if (currentAssistantGroup) {
+        groups.push(currentAssistantGroup);
+      }
+      // Start new assistant group
+      currentAssistantGroup = {
+        type: 'assistant',
+        mainBlock: block,
+        toolBlocks: [],
+      };
+    } else if (block.block_type === 'tool_call' || block.block_type === 'tool_result') {
+      // Add to current assistant group if exists
+      if (currentAssistantGroup) {
+        currentAssistantGroup.toolBlocks.push(block);
+      } else {
+        // Orphan tool block - create a placeholder assistant group
+        currentAssistantGroup = {
+          type: 'assistant',
+          mainBlock: {
+            id: `placeholder-${block.id}`,
+            chat_session_id: block.chat_session_id,
+            sequence_number: block.sequence_number - 1,
+            block_type: 'assistant_text',
+            author: 'assistant',
+            content: { text: '' },
+            block_metadata: {},
+            created_at: block.created_at,
+            updated_at: block.updated_at,
+          },
+          toolBlocks: [block],
+        };
+      }
+    } else if (block.block_type === 'system') {
+      // System blocks can be shown as assistant messages
+      if (currentAssistantGroup) {
+        groups.push(currentAssistantGroup);
+        currentAssistantGroup = null;
+      }
+      groups.push({
+        type: 'assistant',
+        mainBlock: block,
+        toolBlocks: [],
+      });
+    }
+  }
+
+  // Flush final assistant group
+  if (currentAssistantGroup) {
+    groups.push(currentAssistantGroup);
+  }
+
+  return groups;
+}
+
 export const AssistantUIChatList: React.FC<AssistantUIChatListProps> = ({
-  messages,
+  blocks,
   isStreaming,
   streamEvents = [],
 }) => {
   const virtuosoRef = useRef<VirtuosoHandle>(null);
+
+  // Group blocks into display units
+  const displayGroups = useMemo(() => groupBlocks(blocks), [blocks]);
 
   // followOutput as a function - Virtuoso calls this when new items are added
   // Returns 'smooth' to auto-scroll, or false to stay in place
@@ -70,18 +161,19 @@ export const AssistantUIChatList: React.FC<AssistantUIChatListProps> = ({
     <div style={{ height: '100%', width: '100%' }}>
       <Virtuoso
         ref={virtuosoRef}
-        data={messages}
-        initialTopMostItemIndex={messages.length > 0 ? messages.length - 1 : 0}
+        data={displayGroups}
+        initialTopMostItemIndex={displayGroups.length > 0 ? displayGroups.length - 1 : 0}
         followOutput={handleFollowOutput}
         atBottomThreshold={100}
-        itemContent={(index, message) => {
-          const isLastMessage = index === messages.length - 1;
-          const isCurrentlyStreaming = isStreaming && isLastMessage;
+        itemContent={(index, group) => {
+          const isLastGroup = index === displayGroups.length - 1;
+          const isCurrentlyStreaming = isStreaming && isLastGroup && group.type === 'assistant';
 
           return (
             <MemoizedAssistantUIMessage
-              key={message.id}
-              message={message}
+              key={group.mainBlock.id}
+              block={group.mainBlock}
+              toolBlocks={group.toolBlocks}
               isStreaming={isCurrentlyStreaming}
               streamEvents={isCurrentlyStreaming ? streamEvents : []}
             />

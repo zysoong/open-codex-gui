@@ -2,12 +2,17 @@
 
 import json
 import asyncio
+from dataclasses import dataclass, field
 from typing import Dict, Any, Optional
 from fastapi import WebSocket, WebSocketDisconnect
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-from app.models.database import ChatSession, Message, MessageRole, AgentConfiguration, AgentAction
+from app.models.database import (
+    ChatSession, AgentConfiguration,
+    ContentBlock, ContentBlockType, ContentBlockAuthor
+)
+from sqlalchemy import func
 from app.core.llm import create_llm_provider_with_db
 from app.core.agent.executor import ReActAgent
 from app.core.agent.tools import ToolRegistry, BashTool, FileReadTool, FileWriteTool, FileEditTool, SearchTool, SetupEnvironmentTool
@@ -23,10 +28,23 @@ from app.services.streaming_buffer import StreamingBuffer
 from app.services.event_bus import EventBus, StreamingEvent
 
 
-# Global chunk buffer for reconnection support
-# Maps session_id -> deque of chunks
+@dataclass
+class StreamState:
+    """State for a streaming block, used for reconnection support."""
+    block_id: str
+    session_id: str
+    accumulated_content: str = ""
+    streaming: bool = True
+    sequence_number: int = 0
+
+
+# Global stream state for reconnection support
+# Maps session_id -> StreamState
+_stream_states: Dict[str, StreamState] = {}
+
+# Legacy chunk buffer (kept for backward compatibility during transition)
 _chunk_buffers: Dict[str, deque] = {}
-MAX_BUFFER_SIZE = 1000  # Keep last 1000 chunks per session (increased from 200 to handle longer responses)
+MAX_BUFFER_SIZE = 1000
 
 # Initialize architectural services
 _event_bus = EventBus()
@@ -88,55 +106,6 @@ def is_vision_model(model_name: str) -> bool:
     return False
 
 
-def build_tool_result_content(
-    action: AgentAction,
-    model_name: str
-) -> str:
-    """
-    Build tool result content for conversation history.
-    For vision models with image results, returns short text (image data in metadata).
-    For non-vision models, returns descriptive text only.
-
-    Args:
-        action: The agent action containing tool result
-        model_name: The LLM model name
-
-    Returns:
-        Formatted tool result content string
-    """
-    # Check if this is an image result
-    has_image = (
-        action.action_metadata and
-        action.action_metadata.get('type') == 'image' and
-        action.action_metadata.get('image_data')
-    )
-
-    # Format the base output content
-    if action.action_output:
-        if isinstance(action.action_output, dict):
-            success = action.action_output.get("success", True)
-            result = action.action_output.get("result", action.action_output)
-            status_prefix = "[SUCCESS]" if success else "[FAILED]"
-
-            # For images with VLM models, keep the short message
-            # For images with non-VLM models, add explanation
-            if has_image and not is_vision_model(model_name):
-                # Non-VLM model: Add explanation that it can't read images
-                result = (
-                    f"{result}\n\n"
-                    "Note: This is an image file. Image content cannot be analyzed by this model. "
-                    "The image will be displayed to the user in the chat interface."
-                )
-
-            output_content = f"{status_prefix} Tool '{action.action_type}' result:\n{result}"
-        else:
-            output_content = f"Tool '{action.action_type}' returned: {action.action_output}"
-    else:
-        output_content = f"Tool '{action.action_type}' completed (no output)"
-
-    return output_content
-
-
 class ChatWebSocketHandler:
     """Handle WebSocket connections for chat streaming."""
 
@@ -146,6 +115,88 @@ class ChatWebSocketHandler:
         self.current_agent_task = None
         self.cancel_event = None
         self.task_registry = get_agent_task_registry()  # Get global task registry
+        self._sequence_cache: dict[str, int] = {}  # Cache for sequence numbers per session
+
+    async def _get_next_sequence_number(self, session_id: str) -> int:
+        """
+        Get the next sequence number for a content block in a session.
+
+        Uses an in-memory cache for efficiency during streaming, with database
+        lookup for initial value.
+
+        Args:
+            session_id: The chat session ID
+
+        Returns:
+            The next sequence number to use
+        """
+        if session_id not in self._sequence_cache:
+            # Query database for max sequence number in this session
+            query = select(func.max(ContentBlock.sequence_number)).where(
+                ContentBlock.chat_session_id == session_id
+            )
+            result = await self.db.execute(query)
+            max_seq = result.scalar_one_or_none()
+            self._sequence_cache[session_id] = (max_seq or 0)
+
+        # Increment and return
+        self._sequence_cache[session_id] += 1
+        return self._sequence_cache[session_id]
+
+    async def _create_content_block(
+        self,
+        session_id: str,
+        block_type: ContentBlockType,
+        author: ContentBlockAuthor,
+        content: dict,
+        parent_block_id: str | None = None,
+        metadata: dict | None = None
+    ) -> ContentBlock:
+        """
+        Create and persist a content block.
+
+        Args:
+            session_id: The chat session ID
+            block_type: Type of the block
+            author: Author of the block
+            content: Content payload
+            parent_block_id: Optional parent block ID for threading
+            metadata: Optional metadata dict
+
+        Returns:
+            The created ContentBlock
+        """
+        seq_num = await self._get_next_sequence_number(session_id)
+
+        block = ContentBlock(
+            chat_session_id=session_id,
+            sequence_number=seq_num,
+            block_type=block_type,
+            author=author,
+            content=content,
+            parent_block_id=parent_block_id,
+            block_metadata=metadata or {}
+        )
+        self.db.add(block)
+        await self.db.flush()  # Get the ID
+        await self.db.commit()
+
+        return block
+
+    def _block_to_dict(self, block: ContentBlock) -> dict:
+        """Convert a ContentBlock to a dict for WebSocket transmission."""
+        return {
+            "id": block.id,
+            "chat_session_id": block.chat_session_id,
+            "sequence_number": block.sequence_number,
+            "block_type": block.block_type.value,
+            "author": block.author.value,
+            "content": block.content,
+            "parent_block_id": block.parent_block_id,
+            "block_metadata": block.block_metadata,
+            "created_at": block.created_at.isoformat() if block.created_at else None,
+            "updated_at": block.updated_at.isoformat() if block.updated_at else None,
+        }
 
     async def handle_connection(self, session_id: str):
         """Handle WebSocket connection for a chat session."""
@@ -269,20 +320,19 @@ class ChatWebSocketHandler:
         print(f"  Enabled Tools: {agent_config.enabled_tools}")
         print(f"{'='*80}\n")
 
-        # Save user message
-        user_message = Message(
-            chat_session_id=session_id,
-            role=MessageRole.USER,
-            content=content,
-            message_metadata={},
+        # Create USER_TEXT content block
+        user_block = await self._create_content_block(
+            session_id=session_id,
+            block_type=ContentBlockType.USER_TEXT,
+            author=ContentBlockAuthor.USER,
+            content={"text": content}
         )
-        self.db.add(user_message)
-        await self.db.commit()
+        print(f"[CHAT HANDLER] Created user_text block {user_block.id} (seq: {user_block.sequence_number})")
 
-        # Send confirmation
+        # Send user_text_block event
         await self.websocket.send_json({
-            "type": "user_message_saved",
-            "message_id": user_message.id
+            "type": "user_text_block",
+            "block": self._block_to_dict(user_block)
         })
 
         # Generate title for first message (run in background)
@@ -368,23 +418,21 @@ class ChatWebSocketHandler:
         # Add conversation history
         messages.extend(history)
 
-        # CRITICAL CHANGE: Create assistant message BEFORE starting generation
-        assistant_message = Message(
-            chat_session_id=session_id,
-            role=MessageRole.ASSISTANT,
-            content="",
-            message_metadata={"streaming": True},
+        # Create ASSISTANT_TEXT content block
+        assistant_block = await self._create_content_block(
+            session_id=session_id,
+            block_type=ContentBlockType.ASSISTANT_TEXT,
+            author=ContentBlockAuthor.ASSISTANT,
+            content={"text": ""},
+            metadata={"streaming": True}
         )
-        self.db.add(assistant_message)
-        await self.db.flush()
-        await self.db.commit()
-        print(f"[SIMPLE RESPONSE] Created assistant message {assistant_message.id} at start")
+        print(f"[SIMPLE RESPONSE] Created assistant_text block {assistant_block.id} (seq: {assistant_block.sequence_number})")
 
-        # Update task registry with actual message ID
+        # Update task registry with block ID
         existing_task = await self.task_registry.get_task(session_id)
         if existing_task:
-            existing_task.message_id = assistant_message.id
-            print(f"[TASK REGISTRY] Updated task with message ID {assistant_message.id}")
+            existing_task.message_id = assistant_block.id  # Using block_id now
+            print(f"[TASK REGISTRY] Updated task with block ID {assistant_block.id}")
 
         # Create cancel event
         self.cancel_event = asyncio.Event()
@@ -398,39 +446,52 @@ class ChatWebSocketHandler:
         CHUNK_COMMIT_INTERVAL = 50  # Commit every 50 chunks
 
         # Create finalization callback for StreamingManager
-        async def finalize_message():
-            """Ensure message is properly finalized even if WebSocket disconnects"""
+        async def finalize_block():
+            """Ensure block is properly finalized even if WebSocket disconnects"""
             try:
-                print(f"[FINALIZATION] Running finalization for message {assistant_message.id}")
-                # Fetch the message again to ensure we have latest state
-                result = await self.db.execute(
-                    select(Message).where(Message.id == assistant_message.id)
+                print(f"[FINALIZATION] Running finalization for block {assistant_block.id}")
+                # Fetch the block again to ensure we have latest state
+                block_result = await self.db.execute(
+                    select(ContentBlock).where(ContentBlock.id == assistant_block.id)
                 )
-                msg = result.scalar_one_or_none()
-
-                if msg:
-                    # Use the content from the mutable container (gets latest value)
-                    msg.content = content_holder["content"]
-                    msg.message_metadata = {
-                        "streaming": False,  # Critical: mark as complete
+                block = block_result.scalar_one_or_none()
+                if block:
+                    block.content = {"text": content_holder["content"]}
+                    block.block_metadata = {
+                        "streaming": False,
                         "cancelled": content_holder["cancelled"]
                     }
                     await self.db.commit()
-                    print(f"[FINALIZATION] Message {msg.id} finalized with {len(content_holder['content'])} chars")
+                    print(f"[FINALIZATION] Block {block.id} finalized with {len(content_holder['content'])} chars")
             except Exception as e:
-                print(f"[FINALIZATION] Error finalizing message: {e}")
+                print(f"[FINALIZATION] Error finalizing block: {e}")
                 import traceback
                 traceback.print_exc()
 
         # Register with streaming manager
         await streaming_manager.register_stream(
             session_id=session_id,
-            message_id=assistant_message.id,
-            cleanup_callback=finalize_message
+            message_id=assistant_block.id,  # Using block_id now
+            cleanup_callback=finalize_block
         )
 
+        # Initialize stream state for reconnection support
+        _stream_states[session_id] = StreamState(
+            block_id=assistant_block.id,
+            session_id=session_id,
+            accumulated_content="",
+            streaming=True,
+            sequence_number=assistant_block.sequence_number
+        )
+        print(f"[SIMPLE RESPONSE] Initialized stream state for block {assistant_block.id}")
+
         try:
-            await self.websocket.send_json({"type": "start"})
+            # Send assistant_text_start event
+            await self.websocket.send_json({
+                "type": "assistant_text_start",
+                "block_id": assistant_block.id,
+                "sequence_number": assistant_block.sequence_number
+            })
         except:
             print(f"[SIMPLE RESPONSE] WebSocket disconnected at start, continuing...")
 
@@ -456,12 +517,18 @@ class ChatWebSocketHandler:
                     # Update streaming manager activity
                     await streaming_manager.update_activity(session_id, len(content_holder["content"]))
 
-                    # Buffer chunk for reconnection support
+                    # Update stream state for reconnection support
+                    if session_id in _stream_states:
+                        _stream_states[session_id].accumulated_content = content_holder["content"]
+
+                    # Create chunk event with block_id for proper tracking
                     chunk_data = {
                         "type": "chunk",
-                        "content": chunk
+                        "content": chunk,
+                        "block_id": assistant_block.id  # Include block_id for frontend tracking
                     }
 
+                    # Legacy buffer (for backward compatibility)
                     if session_id not in _chunk_buffers:
                         _chunk_buffers[session_id] = deque(maxlen=MAX_BUFFER_SIZE)
                     _chunk_buffers[session_id].append(chunk_data)
@@ -471,8 +538,8 @@ class ChatWebSocketHandler:
                     except:
                         print(f"[SIMPLE RESPONSE] WebSocket disconnected during chunk, continuing...")
 
-                    # BATCHED INCREMENTAL SAVE: Update message content, commit periodically
-                    assistant_message.content = content_holder["content"]
+                    # BATCHED INCREMENTAL SAVE: Update block content, commit periodically
+                    assistant_block.content = {"text": content_holder["content"]}
                     if chunks_since_commit >= CHUNK_COMMIT_INTERVAL:
                         await self.db.commit()
                         chunks_since_commit = 0
@@ -491,14 +558,14 @@ class ChatWebSocketHandler:
         finally:
             self.cancel_event = None
 
-        # Update final message state - ALWAYS use the complete accumulated content
-        assistant_message.content = content_holder["content"]  # No conditional - always assign the full content
-        assistant_message.message_metadata = {
+        # Update the content block with final content
+        assistant_block.content = {"text": content_holder["content"]}
+        assistant_block.block_metadata = {
             "streaming": False,
             "cancelled": content_holder["cancelled"]
         }
         await self.db.commit()
-        print(f"[SIMPLE RESPONSE] Final message saved with ID: {assistant_message.id}, Content length: {len(content_holder['content'])} chars")
+        print(f"[SIMPLE RESPONSE] Final block saved with ID: {assistant_block.id}, Content length: {len(content_holder['content'])} chars")
 
         # Mark as finalized in streaming manager
         await streaming_manager.mark_finalized(session_id)
@@ -506,8 +573,8 @@ class ChatWebSocketHandler:
         # Send completion
         try:
             await self.websocket.send_json({
-                "type": "end",
-                "message_id": assistant_message.id,
+                "type": "assistant_text_end",
+                "block_id": assistant_block.id,
                 "cancelled": content_holder["cancelled"]
             })
         except:
@@ -516,9 +583,12 @@ class ChatWebSocketHandler:
         # Mark task as completed in registry
         await self.task_registry.mark_completed(session_id, 'completed' if not content_holder["cancelled"] else 'cancelled')
 
-        # Clear chunk buffer for this session
+        # Clear chunk buffer and stream state for this session
         if session_id in _chunk_buffers:
             del _chunk_buffers[session_id]
+        if session_id in _stream_states:
+            del _stream_states[session_id]
+            print(f"[SIMPLE RESPONSE] Cleared stream state for session {session_id}")
 
     async def _handle_agent_response(
         self,
@@ -529,10 +599,10 @@ class ChatWebSocketHandler:
         agent_config: AgentConfiguration
     ):
         """Handle agent response with tool execution."""
-        assistant_message = None
+        assistant_block = None
         try:
-            # Get the assistant message from the implementation
-            assistant_message = await self._handle_agent_response_impl(
+            # Get the assistant block from the implementation
+            assistant_block = await self._handle_agent_response_impl(
                 session_id, user_message, history, llm_provider, agent_config
             )
         except Exception as e:
@@ -542,23 +612,23 @@ class ChatWebSocketHandler:
             import traceback
             traceback.print_exc()
 
-            # CRITICAL FIX: Update message metadata to mark as not streaming and with error
+            # CRITICAL FIX: Update block metadata to mark as not streaming and with error
             try:
-                # Find the assistant message if we don't have it
-                if not assistant_message:
+                # Find the assistant block if we don't have it
+                if not assistant_block:
                     query = (
-                        select(Message)
-                        .where(Message.chat_session_id == session_id)
-                        .where(Message.role == MessageRole.ASSISTANT)
-                        .order_by(Message.created_at.desc())
+                        select(ContentBlock)
+                        .where(ContentBlock.chat_session_id == session_id)
+                        .where(ContentBlock.block_type == ContentBlockType.ASSISTANT_TEXT)
+                        .order_by(ContentBlock.created_at.desc())
                         .limit(1)
                     )
                     result = await self.db.execute(query)
-                    assistant_message = result.scalar_one_or_none()
+                    assistant_block = result.scalar_one_or_none()
 
-                # Update the message to mark it as complete with error
-                if assistant_message:
-                    assistant_message.message_metadata = {
+                # Update the block to mark it as complete with error
+                if assistant_block:
+                    assistant_block.block_metadata = {
                         "agent_mode": True,
                         "streaming": False,  # No longer streaming
                         "has_error": True,
@@ -566,18 +636,18 @@ class ChatWebSocketHandler:
                         "cancelled": False
                     }
                     await self.db.commit()
-                    print(f"[AGENT HANDLER] Updated message {assistant_message.id} metadata after exception")
+                    print(f"[AGENT HANDLER] Updated block {assistant_block.id} metadata after exception")
             except Exception as db_error:
-                print(f"[AGENT HANDLER] Failed to update message metadata: {db_error}")
+                print(f"[AGENT HANDLER] Failed to update block metadata: {db_error}")
 
             await self.websocket.send_json({
                 "type": "error",
                 "content": f"Error: {error_msg}"
             })
             await self.websocket.send_json({
-                "type": "end",
-                "error": True,
-                "message_id": assistant_message.id if assistant_message else None
+                "type": "assistant_text_end",
+                "block_id": assistant_block.id if assistant_block else None,
+                "error": True
             })
 
     async def _handle_agent_response_impl(
@@ -636,27 +706,22 @@ class ChatWebSocketHandler:
             system_instructions=agent_config.system_instructions,
         )
 
-        # CRITICAL CHANGE: Create assistant message BEFORE starting execution
-        # This ensures we can save partial progress even if connection drops
-        assistant_message = Message(
-            chat_session_id=session_id,
-            role=MessageRole.ASSISTANT,
-            content="",  # Will be updated incrementally
-            message_metadata={
-                "agent_mode": True,
-                "streaming": True  # Mark as currently streaming
-            },
+        # Create ASSISTANT_TEXT content block for final text response
+        # Note: Tool calls/results will be separate blocks
+        assistant_block = await self._create_content_block(
+            session_id=session_id,
+            block_type=ContentBlockType.ASSISTANT_TEXT,
+            author=ContentBlockAuthor.ASSISTANT,
+            content={"text": ""},
+            metadata={"streaming": True, "agent_mode": True}
         )
-        self.db.add(assistant_message)
-        await self.db.flush()  # Get the message ID
-        await self.db.commit()  # Commit to save it
-        print(f"[AGENT] Created assistant message {assistant_message.id} at start of execution")
+        print(f"[AGENT] Created assistant_text block {assistant_block.id} (seq: {assistant_block.sequence_number})")
 
-        # Update task registry with actual message ID
+        # Update task registry with block ID
         existing_task = await self.task_registry.get_task(session_id)
         if existing_task:
-            existing_task.message_id = assistant_message.id
-            print(f"[TASK REGISTRY] Updated task with message ID {assistant_message.id}")
+            existing_task.message_id = assistant_block.id  # Using block_id now
+            print(f"[TASK REGISTRY] Updated task with block ID {assistant_block.id}")
 
         # Create cancel event
         self.cancel_event = asyncio.Event()
@@ -666,47 +731,60 @@ class ChatWebSocketHandler:
         has_error = False
         error_message = None
         cancelled = False
-        current_action: Optional[AgentAction] = None
+        current_tool_call_block: Optional[ContentBlock] = None  # Track current tool call block
 
         # Batching for performance: only commit every N chunks or when action completes
         chunks_since_commit = 0
         CHUNK_COMMIT_INTERVAL = 50  # Commit every 50 chunks
 
         # Create finalization callback for StreamingManager
-        async def finalize_agent_message():
-            """Ensure agent message is properly finalized even if WebSocket disconnects"""
+        async def finalize_agent_block():
+            """Ensure agent block is properly finalized even if WebSocket disconnects"""
             try:
-                print(f"[FINALIZATION] Running finalization for agent message {assistant_message.id}")
-                # Fetch the message again to ensure we have latest state
-                result = await self.db.execute(
-                    select(Message).where(Message.id == assistant_message.id)
+                print(f"[FINALIZATION] Running finalization for agent block {assistant_block.id}")
+                # Fetch the block again to ensure we have latest state
+                block_result = await self.db.execute(
+                    select(ContentBlock).where(ContentBlock.id == assistant_block.id)
                 )
-                msg = result.scalar_one_or_none()
-
-                if msg:
-                    # Use the assistant_content from the outer scope (captured at finalization time)
-                    msg.content = assistant_content
-                    msg.message_metadata = {
+                block = block_result.scalar_one_or_none()
+                if block:
+                    block.content = {"text": assistant_content}
+                    block.block_metadata = {
+                        "streaming": False,
                         "agent_mode": True,
-                        "streaming": False,  # Critical: mark as complete
                         "has_error": has_error,
                         "cancelled": cancelled
                     }
                     await self.db.commit()
-                    print(f"[FINALIZATION] Agent message {msg.id} finalized with {len(assistant_content)} chars")
+                    print(f"[FINALIZATION] Agent block {block.id} finalized with {len(assistant_content)} chars")
             except Exception as e:
-                print(f"[FINALIZATION] Error finalizing agent message: {e}")
+                print(f"[FINALIZATION] Error finalizing agent block: {e}")
                 import traceback
                 traceback.print_exc()
 
         # Register with streaming manager
         await streaming_manager.register_stream(
             session_id=session_id,
-            message_id=assistant_message.id,
-            cleanup_callback=finalize_agent_message
+            message_id=assistant_block.id,  # Using block_id now
+            cleanup_callback=finalize_agent_block
         )
 
-        await self.websocket.send_json({"type": "start"})
+        # Initialize stream state for reconnection support
+        _stream_states[session_id] = StreamState(
+            block_id=assistant_block.id,
+            session_id=session_id,
+            accumulated_content="",
+            streaming=True,
+            sequence_number=assistant_block.sequence_number
+        )
+        print(f"[AGENT] Initialized stream state for block {assistant_block.id}")
+
+        # Send assistant_text_start event
+        await self.websocket.send_json({
+            "type": "assistant_text_start",
+            "block_id": assistant_block.id,
+            "sequence_number": assistant_block.sequence_number
+        })
         print(f"[AGENT] Starting agent execution loop...")
 
         event_count = 0
@@ -759,105 +837,121 @@ class ChatWebSocketHandler:
                         print(f"[AGENT] WebSocket disconnected during action_args_chunk, continuing...")
 
                 elif event_type == "action":
-                    # Agent is using a tool - save immediately to database
+                    # Agent is using a tool - create TOOL_CALL content block
                     tool_name = event.get("tool")
                     tool_args = event.get("args", {})
                     print(f"[AGENT] Action: {tool_name}")
                     print(f"  Args: {tool_args}")
 
+                    # Create TOOL_CALL content block
+                    current_tool_call_block = await self._create_content_block(
+                        session_id=session_id,
+                        block_type=ContentBlockType.TOOL_CALL,
+                        author=ContentBlockAuthor.ASSISTANT,
+                        content={
+                            "tool_name": tool_name,
+                            "arguments": tool_args,
+                            "status": "pending"
+                        },
+                        metadata={"step": event.get("step", 0)}
+                    )
+                    print(f"[AGENT] Created tool_call block {current_tool_call_block.id} (seq: {current_tool_call_block.sequence_number})")
+
                     try:
+                        # Send tool_call_block event
                         await self.websocket.send_json({
-                            "type": "action",
-                            "tool": tool_name,
-                            "args": tool_args,
-                            "step": event.get("step", 0)
+                            "type": "tool_call_block",
+                            "block": self._block_to_dict(current_tool_call_block)
                         })
                     except:
                         print(f"[AGENT] WebSocket disconnected during action, continuing...")
 
-                    # INCREMENTAL SAVE: Save action to database immediately
-                    current_action = AgentAction(
-                        message_id=assistant_message.id,
-                        action_type=tool_name,
-                        action_input=tool_args,
-                        action_output=None,
-                        status="pending"
-                    )
-                    self.db.add(current_action)
-                    await self.db.commit()
-                    print(f"[AGENT] Saved action {current_action.id} to database")
-
                 elif event_type == "observation":
-                    # Tool execution result - update the action in database
+                    # Tool execution result - create TOOL_RESULT content block
                     observation = event.get("content", "")
                     success = event.get("success", True)
                     metadata = event.get("metadata", {})
                     print(f"[AGENT] Observation (success={success}): {observation[:100]}...")
 
-                    try:
-                        await self.websocket.send_json({
-                            "type": "observation",
-                            "content": observation,
+                    # Get tool name from current tool call block
+                    tool_name_for_result = "unknown"
+                    if current_tool_call_block:
+                        tool_name_for_result = current_tool_call_block.content.get("tool_name", "unknown")
+                        # Update the TOOL_CALL block status
+                        current_tool_call_block.content = {
+                            **current_tool_call_block.content,
+                            "status": "complete" if success else "error"
+                        }
+                        await self.db.commit()
+                        chunks_since_commit = 0  # Reset counter after action commit
+
+                    # Create TOOL_RESULT content block
+                    tool_result_block = await self._create_content_block(
+                        session_id=session_id,
+                        block_type=ContentBlockType.TOOL_RESULT,
+                        author=ContentBlockAuthor.TOOL,
+                        content={
+                            "tool_name": tool_name_for_result,
+                            "result": observation,
                             "success": success,
-                            "metadata": metadata,
-                            "step": event.get("step", 0)
+                            "error": None if success else observation
+                        },
+                        parent_block_id=current_tool_call_block.id if current_tool_call_block else None,
+                        metadata=metadata
+                    )
+                    print(f"[AGENT] Created tool_result block {tool_result_block.id} (seq: {tool_result_block.sequence_number})")
+
+                    try:
+                        # Send tool_result_block event
+                        await self.websocket.send_json({
+                            "type": "tool_result_block",
+                            "block": self._block_to_dict(tool_result_block)
                         })
                     except:
                         print(f"[AGENT] WebSocket disconnected during observation, continuing...")
 
-                    # INCREMENTAL SAVE: Update the current action with result
-                    if current_action:
-                        current_action.action_output = {
-                            "result": observation,
-                            "success": success
-                        }
-                        current_action.action_metadata = metadata
-                        current_action.status = "success" if success else "error"
-                        await self.db.commit()
-                        chunks_since_commit = 0  # Reset counter after action commit
-                        print(f"[AGENT] Updated action {current_action.id} with result")
+                    # CRITICAL FIX: If setup_environment just succeeded, update tool registry
+                    if current_tool_call_block and tool_name_for_result == "setup_environment" and success:
+                        print(f"[AGENT] setup_environment succeeded! Updating tool registry with sandbox tools...")
 
-                        # CRITICAL FIX: If setup_environment just succeeded, update tool registry
-                        if current_action.action_type == "setup_environment" and success:
-                            print(f"[AGENT] setup_environment succeeded! Updating tool registry with sandbox tools...")
+                        # Refresh session from database to get updated environment_type
+                        await self.db.refresh(session)
 
-                            # Refresh session from database to get updated environment_type
-                            await self.db.refresh(session)
+                        if session and session.environment_type:
+                            # Get or create container
+                            container = await container_manager.get_container(session_id)
+                            if not container:
+                                container = await container_manager.create_container(
+                                    session_id,
+                                    session.environment_type,
+                                    session.environment_config or {}
+                                )
 
-                            if session and session.environment_type:
-                                # Get or create container
-                                container = await container_manager.get_container(session_id)
-                                if not container:
-                                    container = await container_manager.create_container(
-                                        session_id,
-                                        session.environment_type,
-                                        session.environment_config or {}
-                                    )
+                            # Clear existing tools and register sandbox tools
+                            tool_registry._tools = {}  # Reset tool registry
 
-                                # Clear existing tools and register sandbox tools
-                                tool_registry._tools = {}  # Reset tool registry
+                            if "bash" in agent_config.enabled_tools:
+                                tool_registry.register(BashTool(container))
+                                print(f"[AGENT]   ✓ Registered BashTool")
+                            if "file_read" in agent_config.enabled_tools:
+                                tool_registry.register(FileReadTool(container, agent_config.llm_model))
+                                print(f"[AGENT]   ✓ Registered FileReadTool")
+                            if "file_write" in agent_config.enabled_tools:
+                                tool_registry.register(FileWriteTool(container))
+                                print(f"[AGENT]   ✓ Registered FileWriteTool")
+                            if "file_edit" in agent_config.enabled_tools:
+                                tool_registry.register(FileEditTool(container))
+                                print(f"[AGENT]   ✓ Registered FileEditTool")
+                            if "search" in agent_config.enabled_tools:
+                                tool_registry.register(SearchTool(container))
+                                print(f"[AGENT]   ✓ Registered SearchTool")
 
-                                if "bash" in agent_config.enabled_tools:
-                                    tool_registry.register(BashTool(container))
-                                    print(f"[AGENT]   ✓ Registered BashTool")
-                                if "file_read" in agent_config.enabled_tools:
-                                    tool_registry.register(FileReadTool(container, agent_config.llm_model))
-                                    print(f"[AGENT]   ✓ Registered FileReadTool")
-                                if "file_write" in agent_config.enabled_tools:
-                                    tool_registry.register(FileWriteTool(container))
-                                    print(f"[AGENT]   ✓ Registered FileWriteTool")
-                                if "file_edit" in agent_config.enabled_tools:
-                                    tool_registry.register(FileEditTool(container))
-                                    print(f"[AGENT]   ✓ Registered FileEditTool")
-                                if "search" in agent_config.enabled_tools:
-                                    tool_registry.register(SearchTool(container))
-                                    print(f"[AGENT]   ✓ Registered SearchTool")
+                            print(f"[AGENT] Tool registry updated! Now has {len(tool_registry._tools)} tools")
+                        else:
+                            print(f"[AGENT] WARNING: setup_environment succeeded but session.environment_type is still None")
 
-                                print(f"[AGENT] Tool registry updated! Now has {len(tool_registry._tools)} tools")
-                            else:
-                                print(f"[AGENT] WARNING: setup_environment succeeded but session.environment_type is still None")
-
-                        current_action = None  # Reset for next action
+                    # Reset for next action
+                    current_tool_call_block = None
 
                 elif event_type == "chunk":
                     # Agent is streaming final answer chunks
@@ -868,12 +962,18 @@ class ChatWebSocketHandler:
                     # Update streaming manager activity
                     await streaming_manager.update_activity(session_id, len(assistant_content))
 
-                    # Buffer chunk for reconnection support
+                    # Update stream state for reconnection support
+                    if session_id in _stream_states:
+                        _stream_states[session_id].accumulated_content = assistant_content
+
+                    # Create chunk event with block_id for proper tracking
                     chunk_data = {
                         "type": "chunk",
-                        "content": chunk
+                        "content": chunk,
+                        "block_id": assistant_block.id  # Include block_id for frontend tracking
                     }
 
+                    # Legacy buffer (for backward compatibility)
                     if session_id not in _chunk_buffers:
                         _chunk_buffers[session_id] = deque(maxlen=MAX_BUFFER_SIZE)
                     _chunk_buffers[session_id].append(chunk_data)
@@ -885,7 +985,7 @@ class ChatWebSocketHandler:
                         print(f"[AGENT] WebSocket disconnected during chunk, continuing...")
 
                     # Batched commit: only commit periodically
-                    assistant_message.content = assistant_content
+                    assistant_block.content = {"text": assistant_content}
                     if chunks_since_commit >= CHUNK_COMMIT_INTERVAL:
                         await self.db.commit()
                         chunks_since_commit = 0
@@ -898,16 +998,21 @@ class ChatWebSocketHandler:
                     chunks_since_commit += 1
                     print(f"[AGENT] Final Answer: {answer[:100]}...")
 
+                    # Update stream state
+                    if session_id in _stream_states:
+                        _stream_states[session_id].accumulated_content = assistant_content
+
                     try:
                         await self.websocket.send_json({
                             "type": "chunk",
-                            "content": answer
+                            "content": answer,
+                            "block_id": assistant_block.id
                         })
                     except:
                         print(f"[AGENT] WebSocket disconnected during final_answer, continuing...")
 
                     # Batched commit: only commit periodically
-                    assistant_message.content = assistant_content
+                    assistant_block.content = {"text": assistant_content}
                     if chunks_since_commit >= CHUNK_COMMIT_INTERVAL:
                         await self.db.commit()
                         chunks_since_commit = 0
@@ -948,25 +1053,25 @@ class ChatWebSocketHandler:
         print(f"[AGENT] Has error: {has_error}")
         print(f"[AGENT] Cancelled: {cancelled}")
 
-        # Update final message state - ALWAYS use the complete accumulated content
-        assistant_message.content = assistant_content  # No conditional - always assign the full content
-        assistant_message.message_metadata = {
+        # Update the content block with final content
+        assistant_block.content = {"text": assistant_content}
+        assistant_block.block_metadata = {
+            "streaming": False,
             "agent_mode": True,
-            "streaming": False,  # No longer streaming
             "has_error": has_error,
             "cancelled": cancelled
         }
         await self.db.commit()
-        print(f"[AGENT] Final message saved with ID: {assistant_message.id}, Content length: {len(assistant_content)} chars")
+        print(f"[AGENT] Final block saved with ID: {assistant_block.id}, Content length: {len(assistant_content)} chars")
 
         # Mark as finalized in streaming manager
         await streaming_manager.mark_finalized(session_id)
 
-        # Send completion with message ID
+        # Send completion
         try:
             await self.websocket.send_json({
-                "type": "end",
-                "message_id": assistant_message.id,
+                "type": "assistant_text_end",
+                "block_id": assistant_block.id,
                 "has_error": has_error,
                 "cancelled": cancelled
             })
@@ -978,13 +1083,16 @@ class ChatWebSocketHandler:
         await self.task_registry.mark_completed(session_id, status)
         print(f"[TASK REGISTRY] Marked task as {status} for session {session_id}")
 
-        # Clear chunk buffer for this session
+        # Clear chunk buffer and stream state for this session
         if session_id in _chunk_buffers:
             del _chunk_buffers[session_id]
-            print(f"[TASK REGISTRY] Cleared chunk buffer for session {session_id}")
+            print(f"[AGENT] Cleared chunk buffer for session {session_id}")
+        if session_id in _stream_states:
+            del _stream_states[session_id]
+            print(f"[AGENT] Cleared stream state for session {session_id}")
 
-        # Return the assistant message so exception handler can access it
-        return assistant_message
+        # Return the assistant block so exception handler can access it
+        return assistant_block
 
     async def _get_conversation_history(
         self,
@@ -992,7 +1100,7 @@ class ChatWebSocketHandler:
         model_name: str
     ) -> list[Dict[str, str | Any]]:
         """
-        Get conversation history for a session, including agent actions.
+        Get conversation history for a session using ContentBlocks.
         For vision models, formats image results using vision API format.
 
         Args:
@@ -1002,79 +1110,91 @@ class ChatWebSocketHandler:
         Returns:
             List of message dicts formatted for the LLM API
         """
-        from sqlalchemy.orm import joinedload
-
+        # Query content blocks ordered by sequence number
         query = (
-            select(Message)
-            .options(joinedload(Message.agent_actions))  # Eagerly load agent actions
-            .where(Message.chat_session_id == session_id)
-            .order_by(Message.created_at.asc())
+            select(ContentBlock)
+            .where(ContentBlock.chat_session_id == session_id)
+            .order_by(ContentBlock.sequence_number.asc())
         )
         result = await self.db.execute(query)
-        messages = result.unique().scalars().all()
+        blocks = result.scalars().all()
 
         is_vlm = is_vision_model(model_name)
         history = []
 
-        for msg in messages:
-            # Add the main message
-            history.append({
-                "role": msg.role.value,
-                "content": msg.content
-            })
+        for block in blocks:
+            if block.block_type == ContentBlockType.USER_TEXT:
+                # User message
+                text = block.content.get("text", "") if isinstance(block.content, dict) else str(block.content)
+                history.append({
+                    "role": "user",
+                    "content": text
+                })
 
-            # If this is an assistant message with agent actions, include them in the history
-            # This ensures the LLM remembers what tools it used and what the results were
-            if msg.role == MessageRole.ASSISTANT and msg.agent_actions:
-                for action in msg.agent_actions:
-                    # Add function call representation
-                    # This shows the LLM what tool was called with what arguments
-                    # Note: arguments must be JSON string, not dict (OpenAI requirement)
-                    args_str = json.dumps(action.action_input) if isinstance(action.action_input, dict) else action.action_input
+            elif block.block_type == ContentBlockType.ASSISTANT_TEXT:
+                # Assistant message
+                text = block.content.get("text", "") if isinstance(block.content, dict) else str(block.content)
+                if text:  # Only add non-empty assistant messages
                     history.append({
                         "role": "assistant",
-                        "content": f"Using tool: {action.action_type}",
-                        "function_call": {
-                            "name": action.action_type,
-                            "arguments": args_str
-                        }
+                        "content": text
                     })
 
-                    # Add function result with vision support
-                    # Check if this is an image result for a VLM
-                    has_image = (
-                        action.action_metadata and
-                        action.action_metadata.get('type') == 'image' and
-                        action.action_metadata.get('image_data')
-                    )
+            elif block.block_type == ContentBlockType.TOOL_CALL:
+                # Tool call - add as assistant message with function_call
+                tool_name = block.content.get("tool_name", "unknown")
+                tool_args = block.content.get("arguments", {})
+                args_str = json.dumps(tool_args) if isinstance(tool_args, dict) else str(tool_args)
+                history.append({
+                    "role": "assistant",
+                    "content": f"Using tool: {tool_name}",
+                    "function_call": {
+                        "name": tool_name,
+                        "arguments": args_str
+                    }
+                })
 
-                    if has_image and is_vlm:
-                        # Vision model: Use multi-content format with image
-                        image_data = action.action_metadata['image_data']
-                        text_content = build_tool_result_content(action, model_name)
+            elif block.block_type == ContentBlockType.TOOL_RESULT:
+                # Tool result - add as user message (function result)
+                tool_name = block.content.get("tool_name", "unknown")
+                result_text = block.content.get("result", "")
+                success = block.content.get("success", True)
+                metadata = block.block_metadata or {}
 
-                        history.append({
-                            "role": "user",
-                            "content": [
-                                {
-                                    "type": "text",
-                                    "text": text_content
-                                },
-                                {
-                                    "type": "image_url",
-                                    "image_url": {
-                                        "url": image_data  # data URI format: data:image/png;base64,...
-                                    }
+                # Check if this is an image result for a VLM
+                has_image = (
+                    metadata.get('type') == 'image' and
+                    metadata.get('image_data')
+                )
+
+                if has_image and is_vlm:
+                    # Vision model: Use multi-content format with image
+                    image_data = metadata['image_data']
+                    text_content = f"Tool result ({tool_name}): {result_text}"
+
+                    history.append({
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": text_content
+                            },
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": image_data  # data URI format: data:image/png;base64,...
                                 }
-                            ]
-                        })
-                    else:
-                        # Non-vision model or text-only result: Use text format
-                        output_content = build_tool_result_content(action, model_name)
-                        history.append({
-                            "role": "user",
-                            "content": output_content
-                        })
+                            }
+                        ]
+                    })
+                else:
+                    # Non-vision model or text-only result: Use text format
+                    status_text = "Success" if success else "Error"
+                    output_content = f"Tool result ({tool_name}) [{status_text}]: {result_text}"
+                    history.append({
+                        "role": "user",
+                        "content": output_content
+                    })
 
         return history
 
@@ -1103,15 +1223,15 @@ class ChatWebSocketHandler:
                 return
 
             # Check if this is the first user message
-            message_count_query = select(Message).where(
-                Message.chat_session_id == session_id,
-                Message.role == MessageRole.USER
+            user_block_count_query = select(ContentBlock).where(
+                ContentBlock.chat_session_id == session_id,
+                ContentBlock.block_type == ContentBlockType.USER_TEXT
             )
-            message_count_result = await self.db.execute(message_count_query)
-            messages = message_count_result.scalars().all()
+            user_block_count_result = await self.db.execute(user_block_count_query)
+            user_blocks = user_block_count_result.scalars().all()
 
-            if len(messages) != 1:
-                print(f"[TITLE GEN] Skipping - not first message (count: {len(messages)})")
+            if len(user_blocks) != 1:
+                print(f"[TITLE GEN] Skipping - not first message (count: {len(user_blocks)})")
                 return
 
             print(f"[TITLE GEN] Generating title for session {session_id}")
@@ -1159,95 +1279,119 @@ Respond with ONLY the title, nothing else. The title should capture the main top
 
     async def _attach_to_existing_stream(self, session_id: str, existing_task):
         """Attach new WebSocket connection to an existing streaming task."""
-        global _chunk_buffers
+        global _chunk_buffers, _stream_states
 
-        print(f"[TASK REGISTRY] Attaching to existing stream for session {session_id}")
+        print(f"[STREAM SYNC] Attaching to existing stream for session {session_id}")
 
-        # Send notification that we're resuming a stream
-        try:
-            await self.websocket.send_json({
-                "type": "resuming_stream",
-                "message_id": existing_task.message_id
-            })
-        except WebSocketDisconnect:
-            print(f"[TASK REGISTRY] WebSocket already disconnected")
-            return
-
-        # Track the last chunk sent using a unique identifier
-        last_chunk_sent = None
         ws_connected = True
 
-        # Send buffered chunks if available
-        if session_id in _chunk_buffers:
-            buffer = _chunk_buffers[session_id]
-            # Create a snapshot of the buffer to avoid "deque mutated during iteration" error
-            buffer_snapshot = list(buffer)
-            print(f"[TASK REGISTRY] Sending {len(buffer_snapshot)} buffered chunks")
+        # Check if we have stream state for this session
+        if session_id in _stream_states:
+            stream_state = _stream_states[session_id]
+            print(f"[STREAM SYNC] Found stream state for block {stream_state.block_id}, content length: {len(stream_state.accumulated_content)}")
 
-            for chunk in buffer_snapshot:
-                if not ws_connected:
-                    break
-                try:
-                    await self.websocket.send_json(chunk)
-                    last_chunk_sent = chunk  # Track last successful send
-                    await asyncio.sleep(0.001)  # Small delay to avoid overwhelming client
-                except (WebSocketDisconnect, ConnectionError, Exception) as e:
-                    print(f"[TASK REGISTRY] WebSocket disconnected while sending buffered chunks: {e}")
-                    ws_connected = False
-                    break
+            # Send stream_sync event with full state
+            try:
+                await self.websocket.send_json({
+                    "type": "stream_sync",
+                    "block_id": stream_state.block_id,
+                    "accumulated_content": stream_state.accumulated_content,
+                    "streaming": stream_state.streaming,
+                    "sequence_number": stream_state.sequence_number
+                })
+                print(f"[STREAM SYNC] Sent stream_sync event for block {stream_state.block_id}")
+            except WebSocketDisconnect:
+                print(f"[STREAM SYNC] WebSocket already disconnected")
+                return
+        else:
+            # Fallback to legacy resuming_stream for backward compatibility
+            print(f"[STREAM SYNC] No stream state found, using legacy resuming_stream")
+            try:
+                await self.websocket.send_json({
+                    "type": "resuming_stream",
+                    "message_id": existing_task.message_id
+                })
+            except WebSocketDisconnect:
+                print(f"[STREAM SYNC] WebSocket already disconnected")
+                return
+
+            # Send buffered chunks if available (legacy fallback)
+            if session_id in _chunk_buffers:
+                buffer = _chunk_buffers[session_id]
+                buffer_snapshot = list(buffer)
+                print(f"[STREAM SYNC] Sending {len(buffer_snapshot)} buffered chunks (legacy)")
+
+                for chunk in buffer_snapshot:
+                    if not ws_connected:
+                        break
+                    try:
+                        await self.websocket.send_json(chunk)
+                        await asyncio.sleep(0.001)
+                    except (WebSocketDisconnect, ConnectionError, Exception) as e:
+                        print(f"[STREAM SYNC] WebSocket disconnected while sending buffered chunks: {e}")
+                        ws_connected = False
+                        break
+
+        # Track content length for detecting new chunks
+        last_content_length = len(_stream_states.get(session_id, StreamState("", session_id)).accumulated_content)
 
         # Keep WebSocket open and forward new chunks as they arrive
         while ws_connected and existing_task.status == 'running' and not existing_task.task.done():
             try:
-                # Check for new chunks in the buffer
-                if session_id in _chunk_buffers:
-                    buffer = _chunk_buffers[session_id]
-                    buffer_snapshot = list(buffer)
+                # Check for new content in stream state
+                if session_id in _stream_states:
+                    current_state = _stream_states[session_id]
+                    current_length = len(current_state.accumulated_content)
 
-                    # Find where we left off
-                    start_index = 0
-                    if last_chunk_sent is not None:
-                        # Find the last sent chunk in the current buffer
-                        for i, chunk in enumerate(buffer_snapshot):
-                            if chunk == last_chunk_sent:
-                                start_index = i + 1
-                                break
-
-                    # Send any new chunks that arrived since last check
-                    if start_index < len(buffer_snapshot):
-                        new_chunks = buffer_snapshot[start_index:]
-                        print(f"[TASK REGISTRY] Forwarding {len(new_chunks)} new chunks (from index {start_index})")
-
-                        for chunk in new_chunks:
+                    # If content grew, we have new chunks - send them
+                    if current_length > last_content_length:
+                        new_content = current_state.accumulated_content[last_content_length:]
+                        if new_content:
                             try:
-                                await self.websocket.send_json(chunk)
-                                last_chunk_sent = chunk
-                                await asyncio.sleep(0.001)  # Small delay between chunks
+                                await self.websocket.send_json({
+                                    "type": "chunk",
+                                    "content": new_content,
+                                    "block_id": current_state.block_id
+                                })
+                                last_content_length = current_length
                             except (WebSocketDisconnect, ConnectionError, Exception) as e:
-                                print(f"[TASK REGISTRY] WebSocket disconnected while forwarding: {e}")
+                                print(f"[STREAM SYNC] WebSocket disconnected while forwarding chunk: {e}")
                                 ws_connected = False
                                 break
 
-                await asyncio.sleep(0.05)  # Check for new chunks every 50ms
+                await asyncio.sleep(0.03)  # Check for new content every 30ms
 
             except WebSocketDisconnect:
-                print(f"[TASK REGISTRY] WebSocket disconnected from resumed stream")
+                print(f"[STREAM SYNC] WebSocket disconnected from resumed stream")
                 ws_connected = False
                 break
             except Exception as e:
-                print(f"[TASK REGISTRY] Error in chunk forwarding loop: {e}")
+                print(f"[STREAM SYNC] Error in chunk forwarding loop: {e}")
                 ws_connected = False
                 break
 
         # If task completed successfully, send completion message
-        if ws_connected and existing_task.task.done() and existing_task.status == 'completed':
+        if ws_connected and existing_task.task.done():
             try:
-                print(f"[TASK REGISTRY] Task completed, sending end message")
-                await self.websocket.send_json({
-                    "type": "end",
-                    "message": "Stream completed"
-                })
-            except:
-                print(f"[TASK REGISTRY] Failed to send completion message")
+                if existing_task.status == 'completed':
+                    # Get the block_id from stream state or task
+                    block_id = existing_task.message_id
+                    if session_id in _stream_states:
+                        block_id = _stream_states[session_id].block_id
 
-        print(f"[TASK REGISTRY] Exiting _attach_to_existing_stream (ws_connected={ws_connected}, task_status={existing_task.status})")
+                    print(f"[STREAM SYNC] Task completed, sending assistant_text_end for block {block_id}")
+                    await self.websocket.send_json({
+                        "type": "assistant_text_end",
+                        "block_id": block_id,
+                        "cancelled": False
+                    })
+                elif existing_task.status == 'cancelled':
+                    print(f"[STREAM SYNC] Task was cancelled")
+                    await self.websocket.send_json({
+                        "type": "cancelled",
+                        "content": "Response was cancelled"
+                    })
+            except:
+                print(f"[STREAM SYNC] Failed to send completion message")
+
+        print(f"[STREAM SYNC] Exiting _attach_to_existing_stream (ws_connected={ws_connected}, task_status={existing_task.status})")

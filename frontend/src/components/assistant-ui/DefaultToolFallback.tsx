@@ -48,8 +48,8 @@ export const DefaultToolFallback: React.FC<ToolCallMessagePartProps> = ({
   status,
 }) => {
   const isRunning = status?.type === 'running';
-  const hasResult = result !== undefined;
-  const isBinary = result !== undefined && result.is_binary == true;
+  const hasResult = result !== undefined && result !== null;
+  const isBinary = hasResult && typeof result === 'object' && (result as any).is_binary === true;
 
   // Special handling for file write operations
   const isFileWrite = toolName && (

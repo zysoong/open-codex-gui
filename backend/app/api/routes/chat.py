@@ -3,18 +3,16 @@
 from fastapi import APIRouter, Depends, HTTPException, status, WebSocket, WebSocketDisconnect
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
-from sqlalchemy.orm import joinedload
 
 from app.core.storage.database import get_db
-from app.models.database import ChatSession, Message, MessageRole, Project
+from app.models.database import ChatSession, Project, ContentBlock
 from app.models.schemas import (
     ChatSessionCreate,
     ChatSessionUpdate,
     ChatSessionResponse,
     ChatSessionListResponse,
-    MessageCreate,
-    MessageResponse,
-    MessageListResponse,
+    ContentBlockResponse,
+    ContentBlockListResponse,
 )
 from app.api.websocket import ChatWebSocketHandler
 
@@ -148,15 +146,21 @@ async def delete_chat_session(
     await db.commit()
 
 
-# Message endpoints
-@router.get("/{session_id}/messages", response_model=MessageListResponse)
-async def list_messages(
+# Content Blocks endpoints (unified model)
+@router.get("/{session_id}/blocks", response_model=ContentBlockListResponse)
+async def list_content_blocks(
     session_id: str,
     skip: int = 0,
-    limit: int = 100,
+    limit: int = 500,
     db: AsyncSession = Depends(get_db),
 ):
-    """List messages in a chat session."""
+    """
+    List content blocks in a chat session, ordered by sequence_number.
+
+    This is the new unified API that replaces the separate messages + agent_actions model.
+    Each content block represents a single piece of content (text, tool call, or tool result)
+    with guaranteed ordering via sequence_number.
+    """
     # Verify session exists
     session_query = select(ChatSession).where(ChatSession.id == session_id)
     session_result = await db.execute(session_query)
@@ -169,64 +173,50 @@ async def list_messages(
         )
 
     # Get total count
-    count_query = select(func.count()).select_from(Message).where(
-        Message.chat_session_id == session_id
+    count_query = select(func.count()).select_from(ContentBlock).where(
+        ContentBlock.chat_session_id == session_id
     )
     total_result = await db.execute(count_query)
     total = total_result.scalar_one()
 
-    # Get messages with agent actions
+    # Get content blocks ordered by sequence_number
     query = (
-        select(Message)
-        .options(joinedload(Message.agent_actions))  # Eagerly load agent actions
-        .where(Message.chat_session_id == session_id)
+        select(ContentBlock)
+        .where(ContentBlock.chat_session_id == session_id)
+        .order_by(ContentBlock.sequence_number.asc())
         .offset(skip)
         .limit(limit)
-        .order_by(Message.created_at.asc())
     )
     result = await db.execute(query)
-    messages = result.unique().scalars().all()
+    blocks = result.scalars().all()
 
-    return MessageListResponse(
-        messages=[MessageResponse.model_validate(m) for m in messages],
+    return ContentBlockListResponse(
+        blocks=[ContentBlockResponse.model_validate(b) for b in blocks],
         total=total,
     )
 
 
-@router.post("/{session_id}/messages", response_model=MessageResponse, status_code=status.HTTP_201_CREATED)
-async def create_message(
+@router.get("/{session_id}/blocks/{block_id}", response_model=ContentBlockResponse)
+async def get_content_block(
     session_id: str,
-    message_data: MessageCreate,
+    block_id: str,
     db: AsyncSession = Depends(get_db),
 ):
-    """Create a new message in a chat session."""
-    # Verify session exists
-    session_query = select(ChatSession).where(ChatSession.id == session_id)
-    session_result = await db.execute(session_query)
-    session = session_result.scalar_one_or_none()
+    """Get a specific content block by ID."""
+    query = select(ContentBlock).where(
+        ContentBlock.id == block_id,
+        ContentBlock.chat_session_id == session_id
+    )
+    result = await db.execute(query)
+    block = result.scalar_one_or_none()
 
-    if not session:
+    if not block:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Chat session with id {session_id} not found",
+            detail=f"Content block with id {block_id} not found in session {session_id}",
         )
 
-    # Create message
-    message = Message(
-        chat_session_id=session_id,
-        role=message_data.role or MessageRole.USER,
-        content=message_data.content,
-        message_metadata=message_data.message_metadata or {},
-    )
-    db.add(message)
-    await db.commit()
-
-    # Eagerly load agent_actions relationship to avoid lazy loading issues
-    query = select(Message).options(joinedload(Message.agent_actions)).where(Message.id == message.id)
-    result = await db.execute(query)
-    refreshed_message = result.unique().scalar_one()
-
-    return MessageResponse.model_validate(refreshed_message)
+    return ContentBlockResponse.model_validate(block)
 
 
 # WebSocket endpoint for streaming chat

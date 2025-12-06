@@ -9,9 +9,8 @@ import type {
   ChatSession,
   ChatSessionCreate,
   ChatSessionListResponse,
-  Message,
-  MessageCreate,
-  MessageListResponse,
+  ContentBlock,
+  ContentBlockListResponse,
 } from '@/types';
 
 const API_BASE_URL = 'http://127.0.0.1:8000/api/v1';
@@ -111,15 +110,15 @@ export const chatSessionsAPI = {
   },
 };
 
-// Messages API
-export const messagesAPI = {
-  list: async (chatSessionId: string): Promise<MessageListResponse> => {
-    const { data } = await api.get<MessageListResponse>(`/chats/${chatSessionId}/messages`);
+// Content Blocks API (unified message model)
+export const contentBlocksAPI = {
+  list: async (chatSessionId: string): Promise<ContentBlockListResponse> => {
+    const { data } = await api.get<ContentBlockListResponse>(`/chats/${chatSessionId}/blocks`);
     return data;
   },
 
-  create: async (chatSessionId: string, message: MessageCreate): Promise<Message> => {
-    const { data } = await api.post<Message>(`/chats/${chatSessionId}/messages`, message);
+  get: async (chatSessionId: string, blockId: string): Promise<ContentBlock> => {
+    const { data } = await api.get<ContentBlock>(`/chats/${chatSessionId}/blocks/${blockId}`);
     return data;
   },
 };

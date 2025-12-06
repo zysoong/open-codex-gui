@@ -19,7 +19,7 @@
 import { useEffect, useCallback, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { chatSessionsAPI, messagesAPI } from '@/services/api';
+import { chatSessionsAPI, contentBlocksAPI } from '@/services/api';
 import { useOptimizedStreaming } from '../ProjectSession/hooks/useOptimizedStreaming';
 import { AssistantUIChatList } from './AssistantUIChatList';
 import '../ProjectSession/ChatSessionPage.css';
@@ -44,19 +44,19 @@ export default function AssistantUIChatPage() {
     enabled: !!sessionId,
   });
 
-  // Fetch existing messages from the backend
-  const { data: messagesData } = useQuery({
-    queryKey: ['messages', sessionId],
-    queryFn: () => messagesAPI.list(sessionId!),
+  // Fetch existing content blocks from the backend
+  const { data: blocksData } = useQuery({
+    queryKey: ['contentBlocks', sessionId],
+    queryFn: () => contentBlocksAPI.list(sessionId!),
     enabled: !!sessionId,
     staleTime: 5 * 60 * 1000,        // 5 minutes
     refetchOnWindowFocus: false,     // Prevent refetch on tab switch
     refetchOnReconnect: false,
   });
 
-  // Use the existing optimized streaming hook with loaded messages
+  // Use the optimized streaming hook with loaded content blocks
   const {
-    messages,
+    blocks,
     streamEvents,
     isStreaming,
     error,
@@ -64,8 +64,8 @@ export default function AssistantUIChatPage() {
     cancelStream,
     clearError,
   } = useOptimizedStreaming({
-    sessionId,
-    initialMessages: messagesData?.messages || [],
+    sessionId: sessionId!,
+    initialBlocks: blocksData?.blocks || [],
   });
 
   // Handle pending message from sessionStorage (quick start feature)
@@ -119,10 +119,10 @@ export default function AssistantUIChatPage() {
         <div className="header-spacer"></div>
       </div>
 
-      {/* Messages - Using assistant-ui chat list */}
+      {/* Content Blocks - Using assistant-ui chat list */}
       <div className="chat-messages-container">
         <AssistantUIChatList
-          messages={messages}
+          blocks={blocks}
           isStreaming={isStreaming}
           streamEvents={streamEvents}
         />

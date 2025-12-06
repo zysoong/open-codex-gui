@@ -55,7 +55,7 @@ export default function ProjectLandingPage() {
                 minute: '2-digit',
             })}`;
 
-            const newSession = await chatSessionsAPI.create(projectId, { name: sessionName });
+            const newSession = await chatSessionsAPI.create(projectId!, { name: sessionName });
 
             // Store the message to be sent
             sessionStorage.setItem('pendingMessage', message);
@@ -186,7 +186,7 @@ export default function ProjectLandingPage() {
           </div>
           {showAgentConfig && (
             <div className="sidebar-section-content">
-              <AgentConfigPanel projectId={projectId} />
+              <AgentConfigPanel projectId={projectId!} />
             </div>
           )}
         </div>
@@ -201,7 +201,7 @@ export default function ProjectLandingPage() {
           </div>
           {showFiles && (
             <div className="sidebar-section-content">
-              <FilePanel projectId={projectId} />
+              <FilePanel projectId={projectId!} />
             </div>
           )}
         </div>

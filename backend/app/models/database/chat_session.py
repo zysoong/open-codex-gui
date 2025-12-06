@@ -35,3 +35,4 @@ class ChatSession(Base):
     # Relationships
     project = relationship("Project", back_populates="chat_sessions")
     messages = relationship("Message", back_populates="chat_session", cascade="all, delete-orphan")
+    content_blocks = relationship("ContentBlock", back_populates="chat_session", cascade="all, delete-orphan")

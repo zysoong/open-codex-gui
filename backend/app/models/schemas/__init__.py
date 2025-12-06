@@ -21,6 +21,12 @@ from app.models.schemas.message import (
     MessageResponse,
     MessageListResponse,
 )
+from app.models.schemas.content_block import (
+    ContentBlockCreate,
+    ContentBlockUpdate,
+    ContentBlockResponse,
+    ContentBlockListResponse,
+)
 from app.models.schemas.file import (
     FileResponse,
     FileListResponse,
@@ -40,6 +46,10 @@ __all__ = [
     "MessageCreate",
     "MessageResponse",
     "MessageListResponse",
+    "ContentBlockCreate",
+    "ContentBlockUpdate",
+    "ContentBlockResponse",
+    "ContentBlockListResponse",
     "FileResponse",
     "FileListResponse",
 ]

@@ -1,8 +1,9 @@
 /**
- * AssistantUIMessage - Message component with proper tool streaming
+ * AssistantUIMessage - Message component with ContentBlock support
  *
- * This component handles streaming and tool calls with proper chunk handling
- * for tool arguments and results.
+ * This component renders ContentBlocks with proper streaming and tool call handling.
+ * It receives a main block (user_text or assistant_text) and optional tool blocks
+ * (tool_call and tool_result) that are associated with this message.
  */
 
 import React, { useMemo } from 'react';
@@ -11,7 +12,7 @@ import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { DefaultToolFallback } from './DefaultToolFallback';
-import { Message, StreamEvent } from '@/types';
+import { ContentBlock, StreamEvent } from '@/types';
 
 import type { ToolCallMessagePartStatus } from '@assistant-ui/react';
 
@@ -77,32 +78,37 @@ const StreamingText: React.FC<{ content: string }> = ({ content }) => {
 };
 
 interface AssistantUIMessageProps {
-  message: Message;
+  block: ContentBlock;
+  toolBlocks?: ContentBlock[];
   isStreaming?: boolean;
   streamEvents?: StreamEvent[];
 }
 
 export const AssistantUIMessage: React.FC<AssistantUIMessageProps> = ({
-  message,
+  block,
+  toolBlocks = [],
   isStreaming = false,
   streamEvents = [],
 }) => {
+  // Determine role from block type
+  const role = block.block_type === 'user_text' ? 'user' : 'assistant';
+  const textContent = block.content?.text || '';
+
   // Process message parts with proper streaming support
   const messageParts = useMemo(() => {
     const parts: any[] = [];
-    let currentText = '';
 
     // Handle streaming events with proper chunking
     if (isStreaming && streamEvents.length > 0) {
-      // Use an array to maintain order instead of Map
+      // Accumulate text from streaming events
+      let streamingText = '';
       const toolCalls: Array<any> = [];
       const toolCallsMap = new Map<string, any>();
       let toolCallOrder = 0;
 
       streamEvents.forEach((event: StreamEvent) => {
         if (event.type === 'chunk') {
-          // Accumulate text chunks
-          currentText += event.content || '';
+          streamingText += event.content || '';
         } else if (event.type === 'action_args_chunk') {
           // Streaming tool arguments
           const toolId = `${event.tool}-stream`;
@@ -122,7 +128,6 @@ export const AssistantUIMessage: React.FC<AssistantUIMessageProps> = ({
             toolCallsMap.set(toolId, toolCall);
             toolCalls.push(toolCall);
           } else {
-            // Update partial args - create new object
             const updatedToolCall = {
               ...toolCall,
               args: event.partial_args || toolCall.args,
@@ -154,7 +159,6 @@ export const AssistantUIMessage: React.FC<AssistantUIMessageProps> = ({
             toolCallsMap.set(toolId, toolCall);
             toolCalls.push(toolCall);
           } else {
-            // Update with complete args - create new object
             const updatedToolCall = {
               ...toolCall,
               args: event.args || {},
@@ -166,37 +170,51 @@ export const AssistantUIMessage: React.FC<AssistantUIMessageProps> = ({
               toolCalls[index] = updatedToolCall;
             }
           }
-        } else if (event.type === 'observation') {
-          // Tool result - find the corresponding tool call
-          const toolIds = Array.from(toolCallsMap.keys());
-          const lastToolId = toolIds[toolIds.length - 1];
+        } else if (event.type === 'tool_call_block' && event.block) {
+          // Handle tool_call_block event
+          const blockContent = event.block.content as any;
+          const toolId = event.block.id;
+          const toolCall = {
+            toolCallId: toolId,
+            toolName: blockContent.tool_name || 'unknown',
+            args: blockContent.arguments || {},
+            argsText: JSON.stringify(blockContent.arguments || {}, null, 2),
+            status: { type: blockContent.status === 'complete' ? 'complete' : 'running' } as ToolCallMessagePartStatus,
+            addResult: () => {},
+            resume: () => {},
+            order: toolCallOrder++,
+          };
+          toolCallsMap.set(toolId, toolCall);
+          toolCalls.push(toolCall);
+        } else if (event.type === 'tool_result_block' && event.block) {
+          // Handle tool_result_block event
+          const blockContent = event.block.content as any;
+          const parentId = event.block.parent_block_id;
 
-          if (lastToolId) {
-            const toolCall = toolCallsMap.get(lastToolId);
-            if (toolCall) {
-              // Update with result - create new object
-              const updatedToolCall = {
-                ...toolCall,
-                result: event.content,
-                isError: !event.success,
-                status: { type: 'complete' },
-              };
-              toolCallsMap.set(lastToolId, updatedToolCall);
-              const index = toolCalls.findIndex(tc => tc.toolCallId === lastToolId);
-              if (index !== -1) {
-                toolCalls[index] = updatedToolCall;
-              }
+          if (parentId && toolCallsMap.has(parentId)) {
+            const toolCall = toolCallsMap.get(parentId);
+            const updatedToolCall = {
+              ...toolCall,
+              result: blockContent.result,
+              isError: !blockContent.success,
+              status: { type: 'complete' },
+            };
+            toolCallsMap.set(parentId, updatedToolCall);
+            const index = toolCalls.findIndex(tc => tc.toolCallId === parentId);
+            if (index !== -1) {
+              toolCalls[index] = updatedToolCall;
             }
           }
         }
       });
 
-      // Add accumulated text
-      if (currentText) {
-        parts.push({ type: 'text', content: currentText, isStreaming: true });
+      // Add streaming text (combine with base text content)
+      const combinedText = textContent + streamingText;
+      if (combinedText) {
+        parts.push({ type: 'text', content: combinedText, isStreaming: true });
       }
 
-      // Add tool calls sorted by their order of appearance
+      // Add tool calls sorted by order
       toolCalls
         .sort((a, b) => a.order - b.order)
         .forEach(toolCall => {
@@ -205,38 +223,72 @@ export const AssistantUIMessage: React.FC<AssistantUIMessageProps> = ({
         });
     } else {
       // Non-streaming message
-      if (message.content) {
-        parts.push({ type: 'text', content: message.content, isStreaming: false });
+      if (textContent) {
+        parts.push({ type: 'text', content: textContent, isStreaming: false });
       }
 
-      // Add persisted agent actions as tool calls
-      if (message.agent_actions && Array.isArray(message.agent_actions)) {
-        message.agent_actions
-          .slice()
-          .sort((a: any, b: any) => {
-            const timeA = new Date(a.created_at).getTime();
-            const timeB = new Date(b.created_at).getTime();
-            return timeA - timeB;
-          })
-          .forEach((action: any) => {
-            parts.push({
-              type: 'tool-call',
-              toolCallId: action.id || `action-${Date.now()}-${Math.random()}`,
-              toolName: action.action_type || 'unknown',
-              args: action.action_input || {},
-              argsText: JSON.stringify(action.action_input || {}, null, 2),
-              result: action.action_metadata.is_binary ? action.action_metadata : action.action_output,
-              isError: action.status !== 'success',
-              status: { type: 'complete' } as ToolCallMessagePartStatus,
-              addResult: () => {},
-              resume: () => {},
-            });
+      // Add persisted tool blocks
+      if (toolBlocks && Array.isArray(toolBlocks) && toolBlocks.length > 0) {
+        // Sort by sequence_number
+        const sortedBlocks = [...toolBlocks].sort((a, b) => a.sequence_number - b.sequence_number);
+
+        // Group tool_call with their tool_result
+        const toolCallMap = new Map<string, { call: ContentBlock; result?: ContentBlock }>();
+
+        for (const toolBlock of sortedBlocks) {
+          if (toolBlock.block_type === 'tool_call') {
+            toolCallMap.set(toolBlock.id, { call: toolBlock });
+          } else if (toolBlock.block_type === 'tool_result') {
+            const parentId = toolBlock.parent_block_id;
+            if (parentId && toolCallMap.has(parentId)) {
+              const entry = toolCallMap.get(parentId)!;
+              entry.result = toolBlock;
+            } else {
+              // Orphan result - show anyway
+              const callContent = toolBlock.content as any;
+              parts.push({
+                type: 'tool-call',
+                toolCallId: toolBlock.id,
+                toolName: callContent.tool_name || 'unknown',
+                args: {},
+                argsText: '{}',
+                result: callContent.result,
+                isError: !callContent.success,
+                status: { type: 'complete' } as ToolCallMessagePartStatus,
+                addResult: () => {},
+                resume: () => {},
+              });
+            }
+          }
+        }
+
+        // Convert to parts
+        toolCallMap.forEach(({ call, result }) => {
+          const callContent = call.content as any;
+          const resultContent = result?.content as any;
+
+          parts.push({
+            type: 'tool-call',
+            toolCallId: call.id,
+            toolName: callContent.tool_name || 'unknown',
+            args: callContent.arguments || {},
+            argsText: JSON.stringify(callContent.arguments || {}, null, 2),
+            result: resultContent?.result || resultContent?.error,
+            isError: resultContent ? !resultContent.success : false,
+            status: { type: result ? 'complete' : (callContent.status === 'running' ? 'running' : 'complete') } as ToolCallMessagePartStatus,
+            addResult: () => {},
+            resume: () => {},
+            // Include binary data if present
+            ...(result?.block_metadata?.type === 'image' ? {
+              result: result.block_metadata,
+            } : {}),
           });
+        });
       }
     }
 
     return parts;
-  }, [message, isStreaming, streamEvents]);
+  }, [block, toolBlocks, isStreaming, streamEvents, textContent]);
 
   const renderPart = (part: any, index: number) => {
     if (part.type === 'text') {
@@ -289,10 +341,10 @@ export const AssistantUIMessage: React.FC<AssistantUIMessageProps> = ({
   };
 
   return (
-    <div className={`message-wrapper ${message.role}`}>
+    <div className={`message-wrapper ${role}`}>
       <div className="message-content">
         <div className="message-role">
-          {message.role === 'user' ? (
+          {role === 'user' ? (
             <div className="avatar user-avatar">You</div>
           ) : (
             <div className="avatar assistant-avatar">AI</div>
