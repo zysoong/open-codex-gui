@@ -92,20 +92,21 @@ class AstEditTool(Tool):
 
     @property
     def description(self) -> str:
-        shortcuts = ", ".join(REFACTORING_SHORTCUTS.keys())
         return (
-            "✅ THE UNIVERSAL EDIT TOOL - use this for ALL file edits.\n\n"
-            "Smart editing that automatically uses the best method:\n"
-            "- Code files (.py, .js, .ts, .go, etc.): AST-aware editing\n"
-            "  • Handles whitespace/indentation automatically\n"
-            "  • Pattern matching with $NAME and $$$ metavariables\n"
-            "- Config files (.json, .yaml, .md, .txt, etc.): Text-based editing\n"
-            "  • Simple find/replace for non-code files\n\n"
-            "Works on single files or entire directories.\n\n"
-            "Pattern syntax: $NAME for identifier, $$$ for variadic\n"
-            f"Shortcuts: {shortcuts}\n"
-            "Example: pattern='def old($$$)' rewrite='def new($$$)'\n"
-            "Use dry_run=true to preview changes first."
+            "Edit files by finding and replacing text or code patterns.\n\n"
+            "TWO MODES (auto-detected):\n\n"
+            "1. SIMPLE MODE (no $ in pattern) - Use for most edits:\n"
+            "   pattern: exact text to find (copy from file)\n"
+            "   rewrite: replacement text\n"
+            "   Example: pattern='def old_name(' rewrite='def new_name('\n\n"
+            "2. AST MODE (pattern contains $) - For bulk refactoring:\n"
+            "   pattern: AST pattern with $VAR metavariables\n"
+            "   rewrite: replacement with same metavariables\n"
+            "   Example: pattern='print($$$ARGS)' rewrite='logger.info($$$ARGS)'\n\n"
+            "TIPS:\n"
+            "- For simple edits: copy EXACT text from file (whitespace matters in simple mode)\n"
+            "- For refactoring: use $ for single match, $$$ for multiple\n"
+            "- Use dry_run=true to preview changes first"
         )
 
     @property
@@ -115,8 +116,9 @@ class AstEditTool(Tool):
                 name="pattern",
                 type="string",
                 description=(
-                    "AST pattern to match. Use $NAME for identifiers, $$$ for variadic matches. "
-                    "Examples: 'def $FUNC($$$)', 'console.log($$$)', 'class $NAME'"
+                    "Text or code to find. "
+                    "For simple edits: exact text to match (copy from file). "
+                    "For refactoring: use $VAR for identifiers, $$$ for multiple items."
                 ),
                 required=True,
             ),
@@ -124,8 +126,7 @@ class AstEditTool(Tool):
                 name="rewrite",
                 type="string",
                 description=(
-                    "Replacement pattern. Reference captured metavariables from pattern. "
-                    "Examples: 'def new_$FUNC($$$)', 'logger.info($$$)', 'interface $NAME'"
+                    "Replacement text. For AST patterns, use same $VAR names from pattern."
                 ),
                 required=True,
             ),
@@ -179,6 +180,16 @@ class AstEditTool(Tool):
         """Check if file is a non-code text file."""
         ext = Path(path).suffix.lower()
         return ext in TEXT_EXTENSIONS or ext not in CODE_EXTENSIONS
+
+    def _is_ast_pattern(self, pattern: str) -> bool:
+        """Check if pattern contains AST metavariables ($NAME or $$$).
+
+        If pattern contains $ followed by letters/underscore, it's an AST pattern.
+        Regular $ in strings (like '$100') won't match this.
+        """
+        import re
+        # Match $IDENTIFIER or $$$IDENTIFIER patterns
+        return bool(re.search(r'\$[A-Z_]', pattern))
 
     def _normalize_language(self, language: Optional[str]) -> Optional[str]:
         """Normalize language name for ast-grep."""
@@ -362,12 +373,28 @@ class AstEditTool(Tool):
             )
             is_directory = stdout.strip() == "dir"
 
-            # For single files, check if it's a code file or text file
-            if not is_directory and not self._is_code_file(str(target_path)):
-                # Use text-based editing for non-code files
-                return await self._text_based_edit(target_path, pattern, rewrite, dry_run)
+            # Determine if we should use AST mode or simple text mode
+            use_ast_mode = self._is_ast_pattern(pattern)
 
-            # Check if ast-grep is available for code files
+            # For single files: use text mode if not an AST pattern OR if not a code file
+            if not is_directory:
+                if not use_ast_mode or not self._is_code_file(str(target_path)):
+                    # Use simple text-based editing
+                    return await self._text_based_edit(target_path, pattern, rewrite, dry_run)
+
+            # For directories: if not AST pattern, we can't do simple text mode across dirs
+            if is_directory and not use_ast_mode:
+                return ToolResult(
+                    success=False,
+                    output="",
+                    error=(
+                        "Directory-wide editing requires AST patterns (use $VAR metavariables). "
+                        "For simple text replacement, specify a single file path instead."
+                    ),
+                    metadata={"path": str(target_path)},
+                )
+
+            # Check if ast-grep is available for AST mode
             exit_code, _, _ = await self._container.execute(
                 "which ast-grep",
                 workdir="/workspace",
