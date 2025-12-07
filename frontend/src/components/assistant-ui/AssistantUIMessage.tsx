@@ -205,8 +205,9 @@ export const AssistantUIMessage: React.FC<AssistantUIMessageProps> = ({
       }
     }
 
-    // Step 3: Determine the correct order of text and tools based on timestamps
-    // If text was updated AFTER the last tool result, it's a summary that should appear after tools
+    // Step 3: Determine the correct order of text and tools
+    // ReAct pattern: Thought (text) → Action (tool) → Observation (result)
+    // So text typically comes BEFORE tools, unless the text block was CREATED after tools
     const fullText = textContent + streamingText;
     const textPart = fullText ? {
       type: 'text',
@@ -214,21 +215,19 @@ export const AssistantUIMessage: React.FC<AssistantUIMessageProps> = ({
       isStreaming: isStreaming && (streamingText.length > 0 || streamEvents.length > 0),
     } : (isStreaming ? { type: 'text', content: '', isStreaming: true } : null);
 
-    // Calculate if text should come after tools
-    const textBlockUpdatedAt = new Date(block.updated_at).getTime();
-    const toolResultBlocks = toolBlocks.filter(b => b.block_type === 'tool_result');
-    const lastToolResultTime = toolResultBlocks.length > 0
-      ? Math.max(...toolResultBlocks.map(b => new Date(b.created_at).getTime()))
-      : 0;
+    // Use created_at (not updated_at) to determine ordering
+    // Text was created when the assistant started responding
+    const textBlockCreatedAt = new Date(block.created_at).getTime();
+    const toolCallBlocks = toolBlocks.filter(b => b.block_type === 'tool_call');
+    const firstToolCallTime = toolCallBlocks.length > 0
+      ? Math.min(...toolCallBlocks.map(b => new Date(b.created_at).getTime()))
+      : Infinity;
 
-    // Text comes after tools if:
-    // 1. There are completed tool results
-    // 2. The text block was updated after the last tool result
-    // 3. The text has actual content (not just streaming placeholder)
-    const showTextAfterTools = lastToolResultTime > 0
-      && textBlockUpdatedAt > lastToolResultTime
+    // Text comes after tools ONLY if the text block was created AFTER the first tool call
+    // This handles the rare case where a summary text block is created after tools
+    const showTextAfterTools = textBlockCreatedAt > firstToolCallTime
       && fullText.length > 0
-      && !isStreaming;  // During streaming, keep text at the end for live updates
+      && !isStreaming;  // During streaming, keep current order
 
     // Sort persisted tools by sequence_number
     const sortedPersistedTools = Array.from(toolCallsById.values())
@@ -301,7 +300,7 @@ export const AssistantUIMessage: React.FC<AssistantUIMessageProps> = ({
     }
 
     return parts;
-  }, [block.id, block.updated_at, toolBlocks, isStreaming, streamEvents, textContent]);
+  }, [block.id, block.created_at, toolBlocks, isStreaming, streamEvents, textContent]);
 
   const renderPart = (part: any, index: number) => {
     if (part.type === 'text') {
