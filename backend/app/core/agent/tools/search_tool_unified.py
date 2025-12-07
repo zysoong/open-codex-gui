@@ -95,21 +95,15 @@ class UnifiedSearchTool(Tool):
 
     @property
     def description(self) -> str:
-        shortcuts = ", ".join(PATTERN_SHORTCUTS.keys())
         return (
-            "✅ THE UNIVERSAL SEARCH TOOL - use this for ALL searches.\n\n"
-            "Smart search that automatically uses the best method:\n"
-            "- Code structures: AST-aware search (functions, classes, imports)\n"
-            "- Text content: grep-style search (strings, errors, logs)\n"
-            "- File names: find files by pattern (*.py, config.json)\n\n"
-            "The tool auto-detects the search type based on your query.\n\n"
-            f"Structure shortcuts: {shortcuts}\n"
-            "AST pattern syntax: $NAME for identifier, $$$ for variadic\n\n"
-            "Examples:\n"
-            "- 'functions' → finds all function definitions\n"
-            "- 'class $NAME' → finds all class declarations\n"
-            "- 'error' → grep for 'error' in files\n"
-            "- '*.py' → find all Python files"
+            "Search for code, text, or files in the workspace.\n\n"
+            "USAGE:\n"
+            "- Find functions: query='functions', language='python'\n"
+            "- Find classes: query='classes', language='python'\n"
+            "- Find text: query='error message' (searches file contents)\n"
+            "- Find files: query='*.py' (finds Python files)\n\n"
+            "The 'language' parameter is REQUIRED for code structure searches.\n"
+            "Supported languages: python, javascript, typescript, go, rust, java, c, cpp"
         )
 
     @property
@@ -119,50 +113,31 @@ class UnifiedSearchTool(Tool):
                 name="query",
                 type="string",
                 description=(
-                    "What to search for. Can be:\n"
-                    "- AST pattern: 'def $NAME($$$)', 'class $NAME', or shortcuts like 'functions', 'classes'\n"
-                    "- Text content: any string to grep for in files\n"
-                    "- Filename pattern: '*.py', 'config.json', '**/*.ts'"
+                    "What to search for: 'functions', 'classes', 'imports' for code; "
+                    "any text for grep; '*.py' for files"
                 ),
                 required=True,
             ),
             ToolParameter(
-                name="mode",
-                type="string",
-                description=(
-                    "Search mode (auto-detected if not specified):\n"
-                    "- 'code': AST-aware search for code structures\n"
-                    "- 'text': grep for text content in files\n"
-                    "- 'filename': find files by name pattern"
-                ),
-                required=False,
-                default=None,
-            ),
-            ToolParameter(
                 name="language",
                 type="string",
-                description="For code mode: python, javascript, typescript, go, rust, java, c, cpp",
+                description=(
+                    "REQUIRED for code search. Options: python, javascript, typescript, go, rust, java, c, cpp"
+                ),
                 required=False,
                 default=None,
             ),
             ToolParameter(
                 name="path",
                 type="string",
-                description="Directory to search in (default: /workspace/agent_workspace)",
+                description="Directory to search (default: /workspace/agent_workspace)",
                 required=False,
                 default="/workspace/agent_workspace",
             ),
             ToolParameter(
-                name="file_pattern",
-                type="string",
-                description="For text mode: limit to files matching pattern (e.g., '*.py')",
-                required=False,
-                default=None,
-            ),
-            ToolParameter(
                 name="max_results",
                 type="number",
-                description="Maximum results to return (default: 50)",
+                description="Max results (default: 50)",
                 required=False,
                 default=50,
             ),
@@ -264,6 +239,21 @@ class UnifiedSearchTool(Tool):
         max_results: int
     ) -> ToolResult:
         """AST-aware code structure search."""
+        # Check if language is provided for shortcut queries
+        query_lower = query.lower().strip()
+        is_shortcut = query_lower in PATTERN_SHORTCUTS
+
+        if is_shortcut and not language:
+            return ToolResult(
+                success=False,
+                output="",
+                error=(
+                    f"The 'language' parameter is required when searching for '{query}'. "
+                    f"Please specify language='python' (or javascript, typescript, go, rust, java, c, cpp)."
+                ),
+                metadata={"query": query},
+            )
+
         # Check if ast-grep is available
         exit_code, _, _ = await self._container.execute(
             "which ast-grep",
@@ -405,12 +395,34 @@ class UnifiedSearchTool(Tool):
         )
 
     def _parse_ast_results(self, stdout: str, max_results: int) -> List[Dict[str, Any]]:
-        """Parse ast-grep JSON output."""
+        """Parse ast-grep JSON output.
+
+        ast-grep --json outputs a JSON array, not newline-delimited JSON.
+        """
         matches = []
         if not stdout.strip():
             return matches
 
         try:
+            # ast-grep outputs a JSON array
+            results = json.loads(stdout)
+
+            # Handle both array format and single object
+            if isinstance(results, dict):
+                results = [results]
+            elif not isinstance(results, list):
+                return matches
+
+            for result in results:
+                if len(matches) >= max_results:
+                    break
+                matches.append({
+                    "file": result.get("file", ""),
+                    "line": result.get("range", {}).get("start", {}).get("line", 0),
+                    "match": result.get("text", ""),
+                })
+        except json.JSONDecodeError:
+            # Fallback: try parsing as NDJSON (newline-delimited)
             for line in stdout.strip().split("\n"):
                 if not line.strip():
                     continue
