@@ -168,16 +168,6 @@ class SetupEnvironmentTool(Tool):
             if reason:
                 output_parts.insert(2, f"Reason: {reason}")
 
-            output_parts.extend([
-                f"",
-                f"You can now use the following tools:",
-                f"  • bash - Execute shell commands",
-                f"  • file_read - Read files",
-                f"  • file_write - Create/overwrite files",
-                f"  • edit - Smart editing (AST-aware for code, text-based for config)",
-                f"  • search - Search for files or content",
-            ])
-
             return ToolResult(
                 success=True,
                 output="\n".join(output_parts),

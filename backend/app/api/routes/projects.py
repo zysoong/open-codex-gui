@@ -63,7 +63,7 @@ async def create_project(
     agent_config = AgentConfiguration(
         project_id=project.id,
         agent_type="code_agent",
-        enabled_tools=["bash", "file_read", "file_write", "edit", "edit_lines", "search", "think"],
+        enabled_tools=["bash", "file_read", "file_write", "edit_lines", "search", "think"],
         llm_provider="openai",
         llm_model="gpt-4o-mini",  # Use API-native model names (gpt-4o, gpt-4o-mini, etc.)
         llm_config={"temperature": 1.0, "max_tokens": 16384},

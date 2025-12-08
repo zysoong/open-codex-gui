@@ -30,7 +30,7 @@ AGENT_TEMPLATES = {
         environment_config={
             "packages": ["requests", "pandas", "numpy", "pytest"]
         },
-        enabled_tools=["bash", "file_read", "file_write", "edit", "edit_lines", "search", "think"],
+        enabled_tools=["bash", "file_read", "file_write", "edit_lines", "search", "think"],
         llm_provider="openai",
         llm_model="gpt-4o-mini",
         llm_config={
@@ -85,7 +85,7 @@ SECURITY & SAFETY:
         environment_config={
             "packages": ["typescript", "eslint", "jest"]
         },
-        enabled_tools=["bash", "file_read", "file_write", "edit", "edit_lines", "search", "think"],
+        enabled_tools=["bash", "file_read", "file_write", "edit_lines", "search", "think"],
         llm_provider="openai",
         llm_model="gpt-4o-mini",
         llm_config={
@@ -136,7 +136,7 @@ SECURITY & SAFETY:
         environment_config={
             "packages": ["pandas", "numpy", "matplotlib", "seaborn", "jupyter", "scikit-learn"]
         },
-        enabled_tools=["bash", "file_read", "file_write", "edit", "edit_lines", "search", "think"],
+        enabled_tools=["bash", "file_read", "file_write", "edit_lines", "search", "think"],
         llm_provider="openai",
         llm_model="gpt-4o-mini",
         llm_config={
@@ -322,7 +322,7 @@ FEEDBACK GUIDELINES:
         environment_config={
             "packages": ["pytest", "pytest-cov", "pytest-mock"]
         },
-        enabled_tools=["bash", "file_read", "file_write", "edit", "edit_lines", "search", "think"],
+        enabled_tools=["bash", "file_read", "file_write", "edit_lines", "search", "think"],
         llm_provider="openai",
         llm_model="gpt-4o-mini",
         llm_config={
@@ -424,7 +424,7 @@ SAFETY:
         agent_type="code_agent",
         environment_type="python3.11",
         environment_config={},
-        enabled_tools=["bash", "file_read", "file_write", "edit", "edit_lines", "search", "think"],
+        enabled_tools=["bash", "file_read", "file_write", "edit_lines", "search", "think"],
         llm_provider="openai",
         llm_model="gpt-4o-mini",
         llm_config={
