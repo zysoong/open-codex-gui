@@ -222,9 +222,10 @@ class VolumeStorage(WorkspaceStorage):
                 self._volumes[session_id] = volume
 
                 # Initialize directory structure
+                # Note: /workspace/project_files is mounted from project volume
                 self.docker_client.containers.run(
                     "alpine:latest",
-                    command="sh -c 'mkdir -p /workspace/project_files /workspace/out'",
+                    command="sh -c 'mkdir -p /workspace/out'",
                     volumes={volume_name: {"bind": "/workspace", "mode": "rw"}},
                     remove=True
                 )

@@ -2,7 +2,7 @@
 
 from app.core.agent.tools.base import Tool, ToolRegistry
 from app.core.agent.tools.bash_tool import BashTool
-from app.core.agent.tools.file_tools import FileReadTool, FileWriteTool, FileEditTool
+from app.core.agent.tools.file_tools import FileReadTool, FileWriteTool
 from app.core.agent.tools.search_tool_unified import UnifiedSearchTool
 from app.core.agent.tools.environment_tool import SetupEnvironmentTool
 from app.core.agent.tools.think_tool import ThinkTool
@@ -17,7 +17,6 @@ __all__ = [
     "BashTool",
     "FileReadTool",
     "FileWriteTool",
-    "FileEditTool",
     "UnifiedSearchTool",
     "SearchTool",  # Alias
     "SetupEnvironmentTool",

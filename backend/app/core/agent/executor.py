@@ -360,13 +360,13 @@ Use file_read('{file_path}') FIRST to see the exact content, then try your edit.
                         except json.JSONDecodeError:
                             args = {}
 
-                        # Validate edit requires file_read first
-                        if function_name == "edit":
+                        # Validate edit_lines requires file_read first
+                        if function_name == "edit_lines":
                             file_path = args.get("path", "")
                             should_proceed, validation_msg = self._validate_before_edit(messages, file_path)
 
                             if not should_proceed:
-                                print(f"[REACT AGENT] Validation failed for edit: {file_path}")
+                                print(f"[REACT AGENT] Validation failed for edit_lines: {file_path}")
                                 # Add validation error to conversation
                                 messages.append({
                                     "role": "user",

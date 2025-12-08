@@ -49,6 +49,11 @@ WORKFLOW STRATEGY:
 - EXAMINE PATTERNS: Look at existing modules to match code style, imports, and structure
 - TEST EARLY: Run code with bash tool to catch errors before finalizing
 
+FILE EDITING (CRITICAL):
+- ALWAYS call file_read() BEFORE using edit_lines - you must see line numbers first!
+- After each edit, if error persists at same line, file_read() again (line numbers shift after edits)
+- NEVER make blind edits without reading the file first!
+
 VISUALIZATION & DISPLAY:
 - When user asks to "visualize", "show", "display", or "view" → ALWAYS use file_read tool
 - After creating plots with matplotlib/seaborn/plotly → ALWAYS save and file_read to display
@@ -104,6 +109,11 @@ WORKFLOW STRATEGY:
 - EXAMINE PATTERNS: Look at existing modules to match code style, TypeScript usage, and import patterns
 - TEST EARLY: Run code with bash tool (npm test, node) to catch errors before finalizing
 
+FILE EDITING (CRITICAL):
+- ALWAYS call file_read() BEFORE using edit_lines - you must see line numbers first!
+- After each edit, if error persists at same line, file_read() again (line numbers shift after edits)
+- NEVER make blind edits without reading the file first!
+
 CODE QUALITY STANDARDS:
 - Use modern ES6+ syntax (const/let, arrow functions, destructuring, spread operator)
 - Follow ESLint rules and existing project formatting (Prettier)
@@ -154,6 +164,10 @@ WORKFLOW STRATEGY:
 - INSPECT DATA FIRST: Use pandas methods to understand data structure, types, and quality before analysis
 - VISUALIZE EARLY: Create exploratory plots to understand distributions and relationships
 - VALIDATE ASSUMPTIONS: Check for missing values, outliers, and data quality issues upfront
+
+FILE EDITING (CRITICAL):
+- ALWAYS call file_read() BEFORE using edit_lines - you must see line numbers first!
+- After each edit, if error persists at same line, file_read() again (line numbers shift after edits)
 
 DATA ANALYSIS STANDARDS:
 - Load data with appropriate encoding and dtype specifications
@@ -341,6 +355,10 @@ WORKFLOW STRATEGY:
 - IDENTIFY CASES: Think through success paths, edge cases, and failure scenarios
 - RUN IMMEDIATELY: Use bash tool to run tests after writing them
 
+FILE EDITING (CRITICAL):
+- ALWAYS call file_read() BEFORE using edit_lines - you must see line numbers first!
+- After each edit, if error persists at same line, file_read() again (line numbers shift after edits)
+
 TEST STRUCTURE (AAA Pattern):
 - Arrange: Set up test data and mock dependencies
 - Act: Execute the function/method being tested
@@ -443,6 +461,16 @@ WORKFLOW STRATEGY:
 - EXAMINE PATTERNS: Study existing code style, naming conventions, and project structure
 - TEST INCREMENTALLY: Run code frequently to catch issues early
 - VERIFY DEPENDENCIES: Check what libraries/frameworks are available before using them
+
+FILE EDITING WORKFLOW (CRITICAL):
+- ALWAYS call file_read() BEFORE using edit_lines - you MUST see current line numbers!
+- After each edit, if the error persists at the same line, call file_read() AGAIN because line numbers shift after edits
+- Example workflow:
+  1. file_read('/workspace/out/file.py') → see error is at line 17
+  2. edit_lines(start_line=17, end_line=17, ...) → fix line 17
+  3. Run code → still error at line 17? file_read() again! (line numbers changed)
+  4. Repeat until fixed
+- NEVER make blind edits without reading the file first - this causes cascading errors!
 
 VISUALIZATION & DISPLAY:
 - When user asks to "visualize", "show", "display", "view", or "see" → ALWAYS use file_read tool

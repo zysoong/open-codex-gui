@@ -1,7 +1,5 @@
 """Environment setup tool for agent."""
 
-import shutil
-from pathlib import Path
 from typing import List
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
@@ -9,7 +7,6 @@ from sqlalchemy import select, update
 from app.core.agent.tools.base import Tool, ToolParameter, ToolResult
 from app.core.sandbox.manager import ContainerPoolManager
 from app.models.database import ChatSession
-from app.core.storage.file_manager import get_file_manager
 
 
 class SetupEnvironmentTool(Tool):
@@ -135,26 +132,13 @@ class SetupEnvironmentTool(Tool):
             await self._db.execute(update_stmt)
             await self._db.commit()
 
-            # Create container
+            # Create container (project volume is mounted automatically)
             container = await self._container_manager.create_container(
                 self._session_id,
+                session.project_id,  # Project volume mounted at /workspace/project_files
                 environment_type,
                 {}  # environment_config
             )
-
-            # Copy user-uploaded files to workspace/project_files
-            file_manager = get_file_manager()
-            project_files_src = Path(file_manager.base_path) / session.project_id
-            project_files_dst = Path(container.workspace_path) / "project_files"
-
-            if project_files_src.exists():
-                # Copy all files from project directory to workspace/project_files
-                for file in project_files_src.rglob("*"):
-                    if file.is_file():
-                        relative_path = file.relative_to(project_files_src)
-                        dest_file = project_files_dst / relative_path
-                        dest_file.parent.mkdir(parents=True, exist_ok=True)
-                        shutil.copy2(file, dest_file)
 
             # Build success message
             output_parts = [

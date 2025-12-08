@@ -10,6 +10,7 @@ from docker.errors import DockerException, ImageNotFound
 from app.core.sandbox.container import SandboxContainer
 from app.core.storage.storage_factory import create_storage
 from app.core.storage.workspace_storage import WorkspaceStorage
+from app.core.storage.project_volume_storage import get_project_volume_storage
 
 
 class ContainerPoolManager:
@@ -90,6 +91,7 @@ class ContainerPoolManager:
     async def create_container(
         self,
         session_id: str,
+        project_id: str,
         env_type: str = "python3.11",
         environment_config: Dict | None = None
     ) -> SandboxContainer:
@@ -98,6 +100,7 @@ class ContainerPoolManager:
 
         Args:
             session_id: Chat session ID
+            project_id: Project ID (for mounting project files volume)
             env_type: Environment type
             environment_config: Additional environment configuration
 
@@ -130,11 +133,19 @@ class ContainerPoolManager:
         # Ensure image exists
         image_name = self._ensure_image_exists(env_type)
 
-        # Create workspace using storage backend
+        # Create session workspace using storage backend (for /workspace/out)
         await self.storage.create_workspace(session_id)
 
-        # Get volume configuration from storage backend
-        volume_config = self.storage.get_volume_config(session_id)
+        # Get session volume configuration (mounts to /workspace/out)
+        session_volume_config = self.storage.get_volume_config(session_id)
+
+        # Get project volume configuration (mounts to /workspace/project_files)
+        project_storage = get_project_volume_storage(self.docker_client)
+        await project_storage.ensure_volume(project_id)
+        project_volume_config = project_storage.get_volume_mount_config(project_id)
+
+        # Combine volume configurations
+        volume_config = {**session_volume_config, **project_volume_config}
 
         # Prepare environment variables
         env_vars = {

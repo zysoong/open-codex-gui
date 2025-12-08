@@ -89,7 +89,8 @@
       "Bash(./build_images.sh:*)",
       "Bash(bash build_images.sh:*)",
       "WebFetch(domain:docs.claude.com)",
-      "WebFetch(domain:fabianhertwig.com)"
+      "WebFetch(domain:fabianhertwig.com)",
+      "Bash(ls:*)"
     ],
     "deny": [],
     "ask": []

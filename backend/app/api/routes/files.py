@@ -10,6 +10,7 @@ from app.core.storage.database import get_db
 from app.models.database import File, FileType, Project
 from app.models.schemas.file import FileResponse as FileSchema, FileListResponse
 from app.core.storage.file_manager import get_file_manager
+from app.core.storage.project_volume_storage import get_project_volume_storage
 from app.core.sandbox import is_allowed_file
 
 
@@ -41,13 +42,25 @@ async def upload_file(
             detail=f"File type not allowed: {file.filename}",
         )
 
-    # Save file
+    # Read file content for both local and volume storage
+    file_content = await file.read()
+    await file.seek(0)  # Reset for file_manager
+
+    # Save file locally (for API downloads and tracking)
     file_manager = get_file_manager()
     try:
         file_path, size, file_hash = file_manager.save_file(
             project_id=project_id,
             filename=file.filename,
             content=file.file,
+        )
+
+        # Also write to project Docker volume (for container access)
+        project_storage = get_project_volume_storage()
+        await project_storage.write_file(
+            project_id=project_id,
+            filename=file.filename,
+            content=file_content,
         )
 
         # Create database record
@@ -146,9 +159,16 @@ async def delete_file(
             detail=f"File {file_id} not found",
         )
 
-    # Delete file from disk
+    # Delete file from local disk
     file_manager = get_file_manager()
     file_manager.delete_file(file_record.file_path)
+
+    # Delete file from project Docker volume
+    project_storage = get_project_volume_storage()
+    await project_storage.delete_file(
+        project_id=file_record.project_id,
+        filename=file_record.filename,
+    )
 
     # Delete database record
     await db.delete(file_record)

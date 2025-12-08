@@ -99,26 +99,27 @@ class LineEditTool(Tool):
     def description(self) -> str:
         return (
             "Line-based file editing - use line numbers from file_read output.\n\n"
+            "⚠️ MANDATORY: ALWAYS call file_read() FIRST before using this tool!\n"
+            "You MUST see the current file content and line numbers before editing.\n"
+            "Blind edits without reading the file first will cause errors.\n\n"
             "COMMANDS:\n"
             "- replace: Replace lines start_line to end_line (INCLUSIVE) with new_content\n"
-            "- insert: Insert new_content after insert_line (0 = file start)\n"
+            "- insert: Insert new_content after insert_line (0 = file start). MUST specify insert_line!\n"
             "- delete: Delete lines start_line to end_line (INCLUSIVE)\n\n"
             "CRITICAL - LINE RANGES ARE INCLUSIVE:\n"
             "- To edit ONLY line 7: use start_line=7, end_line=7 (SAME number!)\n"
             "- To edit lines 7-9: use start_line=7, end_line=9 (edits 7, 8, AND 9)\n"
             "- WRONG: start_line=7, end_line=8 to edit line 7 (this also removes line 8!)\n\n"
-            "FEATURES:\n"
-            "- Auto-indentation: Content is automatically indented to match context\n"
-            "- Syntax validation: Python files are validated before saving\n"
-            "- No whitespace matching issues!\n\n"
+            "WORKFLOW:\n"
+            "1. file_read('/workspace/out/file.py') → see line numbers\n"
+            "2. Identify exact line(s) to change\n"
+            "3. edit_lines(...) with correct line numbers\n"
+            "4. If error persists, file_read() again to see updated line numbers!\n\n"
             "EXAMPLES:\n"
             "  Replace SINGLE line 15:\n"
             '    edit_lines(command="replace", path="/workspace/out/main.py",\n'
             '               start_line=15, end_line=15, new_content="    return result")\n\n'
-            "  Replace lines 15-17 (3 lines):\n"
-            '    edit_lines(command="replace", path="/workspace/out/main.py",\n'
-            '               start_line=15, end_line=17, new_content="line1\\nline2\\nline3")\n\n'
-            "  Insert after line 10:\n"
+            "  Insert after line 10 (MUST specify insert_line):\n"
             '    edit_lines(command="insert", path="/workspace/out/main.py",\n'
             '               insert_line=10, new_content="# New comment")'
         )
@@ -394,7 +395,11 @@ class LineEditTool(Tool):
             return ToolResult(
                 success=False,
                 output="",
-                error="Insert command requires insert_line parameter (0 = beginning of file).",
+                error=(
+                    "Insert command requires insert_line parameter.\n"
+                    "Use file_read() first to see line numbers, then specify insert_line.\n"
+                    "Example: insert_line=10 to insert after line 10, insert_line=0 for file start."
+                ),
             )
         if new_content is None:
             return ToolResult(

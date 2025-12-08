@@ -8,6 +8,10 @@ from app.core.storage.workspace_storage import WorkspaceStorage
 from app.core.storage.local_storage import LocalStorage
 from app.core.storage.volume_storage import VolumeStorage
 from app.core.storage.s3_storage import S3Storage
+from app.core.storage.project_volume_storage import (
+    ProjectVolumeStorage,
+    get_project_volume_storage,
+)
 
 
 def create_storage(
