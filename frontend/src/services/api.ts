@@ -203,6 +203,15 @@ export const workspaceAPI = {
     });
     return data;
   },
+
+  // Upload a workspace file to the project (makes it available to other sessions)
+  uploadToProject: async (sessionId: string, path: string, projectId: string): Promise<any> => {
+    const { data } = await api.post(`/chats/${sessionId}/workspace/files/upload-to-project`, {
+      path,
+      project_id: projectId,
+    });
+    return data;
+  },
 };
 
 // Sandbox API

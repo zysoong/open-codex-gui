@@ -25,6 +25,8 @@ import {
   FolderOpen,
   Package,
   X,
+  Upload,
+  Check,
 } from 'lucide-react';
 import './ChatFileSidebar.css';
 
@@ -59,7 +61,7 @@ export default function ChatFileSidebar({
   const [isResizing, setIsResizing] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
     const saved = localStorage.getItem(SIDEBAR_WIDTH_KEY);
-    return saved ? parseInt(saved, 10) : 33.333; // Default to 1/3
+    return saved ? parseInt(saved, 10) : 25; // Default to 1/4
   });
 
   // Close animation state
