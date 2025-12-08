@@ -17,6 +17,41 @@ class BashTool(Tool):
         """
         self._container = container
 
+    def _format_output(self, exit_code: int, stdout: str, stderr: str) -> str:
+        """Format execution result based on exit code.
+
+        Exit code is the sole truth:
+        - exit_code 0 = SUCCESS (stdout/stderr are informational)
+        - exit_code != 0 = ERROR (stdout/stderr contain error details)
+
+        Args:
+            exit_code: Command exit code
+            stdout: Standard output
+            stderr: Standard error
+
+        Returns:
+            Formatted output string
+        """
+        # Combine stdout and stderr
+        output_parts = []
+        if stdout:
+            output_parts.append(stdout)
+        if stderr:
+            output_parts.append(stderr)
+        combined_output = "\n".join(output_parts) if output_parts else "(no output)"
+
+        if exit_code == 0:
+            return (
+                f"[SUCCESS]\n"
+                f"{combined_output}\n"
+                f"--- Execution successful. Proceed with next step or report completion. ---"
+            )
+        else:
+            return (
+                f"[ERROR] Exit code {exit_code}\n"
+                f"{combined_output}"
+            )
+
     @property
     def name(self) -> str:
         return "bash"
@@ -86,14 +121,8 @@ class BashTool(Tool):
                 timeout=timeout,
             )
 
-            # Prepare output
-            output_parts = []
-            if stdout:
-                output_parts.append(f"[stdout]\n{stdout}")
-            if stderr:
-                output_parts.append(f"[stderr]\n{stderr}")
-
-            output = "\n".join(output_parts) if output_parts else "(no output)"
+            # Format output based on exit code (exit code is the sole truth)
+            output = self._format_output(exit_code, stdout, stderr)
 
             # Determine success based on exit code
             success = exit_code == 0

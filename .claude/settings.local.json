@@ -90,7 +90,13 @@
       "Bash(bash build_images.sh:*)",
       "WebFetch(domain:docs.claude.com)",
       "WebFetch(domain:fabianhertwig.com)",
-      "Bash(ls:*)"
+      "Bash(ls:*)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:e2b.dev)",
+      "Bash(for db in /Users/ziyang/Documents/open-codex-gui/backend/*.db /Users/ziyang/Documents/open-codex-gui/backend/data/*.db)",
+      "Bash(do)",
+      "Bash(echo:*)",
+      "Bash(done)"
     ],
     "deny": [],
     "ask": []

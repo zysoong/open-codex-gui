@@ -50,7 +50,12 @@ async def create_project(
     project_data: ProjectCreate,
     db: AsyncSession = Depends(get_db),
 ):
-    """Create a new project."""
+    """Create a new project with default template applied."""
+    from app.core.agent.templates import get_template
+
+    # Get default template for initial configuration
+    default_template = get_template("default")
+
     # Create project
     project = Project(
         name=project_data.name,
@@ -59,14 +64,15 @@ async def create_project(
     db.add(project)
     await db.flush()
 
-    # Create default agent configuration
+    # Create agent configuration with default template values
     agent_config = AgentConfiguration(
         project_id=project.id,
-        agent_type="code_agent",
-        enabled_tools=["bash", "file_read", "file_write", "edit_lines", "search", "think"],
-        llm_provider="openai",
-        llm_model="gpt-4o-mini",  # Use API-native model names (gpt-4o, gpt-4o-mini, etc.)
-        llm_config={"temperature": 1.0, "max_tokens": 16384},
+        agent_type=default_template.agent_type if default_template else "code_agent",
+        system_instructions=default_template.system_instructions if default_template else None,
+        enabled_tools=default_template.enabled_tools if default_template else ["bash", "file_read", "file_write", "edit_lines", "search", "think"],
+        llm_provider=default_template.llm_provider if default_template else "openai",
+        llm_model=default_template.llm_model if default_template else "gpt-4o-mini",
+        llm_config=default_template.llm_config if default_template else {"temperature": 1.0, "max_tokens": 16384},
     )
     db.add(agent_config)
     await db.commit()
