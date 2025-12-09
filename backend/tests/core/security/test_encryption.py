@@ -26,15 +26,32 @@ class TestKeyEncryptionService:
             service = KeyEncryptionService()
             assert service.cipher is not None
 
-    def test_init_without_key_raises(self):
-        """Test that initialization without key raises ValueError."""
+    def test_init_without_key_auto_generates(self, tmp_path):
+        """Test that initialization without key auto-generates one."""
+        # Create a temporary .env file path
+        env_file = tmp_path / ".env"
+
         with patch.dict(os.environ, {}, clear=True):
             # Remove the key from environment
             os.environ.pop("MASTER_ENCRYPTION_KEY", None)
-            with pytest.raises(ValueError) as exc_info:
-                KeyEncryptionService()
 
-            assert "MASTER_ENCRYPTION_KEY" in str(exc_info.value)
+            # Mock the env_path to use our temp file
+            with patch(
+                "app.core.security.encryption.os.path.join", return_value=str(env_file)
+            ):
+                with patch(
+                    "app.core.security.encryption.os.path.abspath",
+                    return_value=str(env_file),
+                ):
+                    service = KeyEncryptionService()
+
+                    # Should have auto-generated a key and created the service
+                    assert service.cipher is not None
+
+                    # The .env file should have been created with the key
+                    assert env_file.exists()
+                    content = env_file.read_text()
+                    assert "MASTER_ENCRYPTION_KEY=" in content
 
     def test_init_with_invalid_key_raises(self):
         """Test that initialization with invalid key raises ValueError."""
