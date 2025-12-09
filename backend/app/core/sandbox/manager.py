@@ -37,12 +37,26 @@ class ContainerPoolManager:
 
         # Environment type to image mapping
         self.env_images = {
+            # Python environments
             "python3.11": "opencodex-env-python3.11:latest",
             "python3.12": "opencodex-env-python3.12:latest",
             "python3.13": "opencodex-env-python3.13:latest",
+            # JavaScript/TypeScript environments
             "nodejs": "opencodex-env-nodejs:latest",
-            "node20": "opencodex-env-node20:latest",  # Keep for backward compatibility
+            "node20": "opencodex-env-node20:latest",  # Legacy alias
+            # JVM languages
+            "java": "opencodex-env-java:latest",
+            "kotlin": "opencodex-env-kotlin:latest",
+            "scala": "opencodex-env-scala:latest",
+            # Systems languages
+            "go": "opencodex-env-go:latest",
+            "rust": "opencodex-env-rust:latest",
             "cpp": "opencodex-env-cpp:latest",
+            # Scripting languages
+            "ruby": "opencodex-env-ruby:latest",
+            "php": "opencodex-env-php:latest",
+            # .NET
+            "dotnet": "opencodex-env-dotnet:latest",
         }
 
     def _ensure_image_exists(self, env_type: str) -> str:

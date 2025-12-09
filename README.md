@@ -40,7 +40,7 @@ ReAct-based agents that reason through problems step by step:
 
 Secure Docker containers for code execution:
 
-- **Isolated environments** - Python 3.13, Node.js 20, C++
+- **13 language environments** - Python (3.11-3.13), Node.js (20, 22), Java 21, Go 1.23, Rust 1.83, C++, Ruby 3.3, PHP 8.3, .NET 8, Kotlin, Scala
 - **Container pooling** - Pre-warmed containers for fast startup
 - **Resource limits** - CPU, memory, and disk quotas
 - **File isolation** - Workspace separation between projects

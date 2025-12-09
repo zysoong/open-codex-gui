@@ -35,12 +35,12 @@ The OpenCodex backend provides a ReAct-based agent system with sandboxed code ex
 | `edit_lines` | Line-based editing with auto-indentation and syntax validation |
 | `search` | Code search with ast-grep or regex fallback |
 | `think` | Structured reasoning tool for complex decisions |
-| `setup_environment` | Initialize Python/Node.js/C++ environments |
+| `setup_environment` | Initialize sandbox environments (13 languages supported) |
 
 ### Sandbox Execution
 - **Docker isolation** - Each session runs in its own container
 - **Container pooling** - Pre-warmed containers for fast startup
-- **Multiple environments** - Python 3.13, Node.js 20, C++
+- **13 language environments** - Python (3.11-3.13), Node.js (20, 22), Java 21, Go 1.23, Rust 1.83, C++, Ruby 3.3, PHP 8.3, .NET 8, Kotlin, Scala
 - **Resource limits** - CPU, memory, and disk quotas
 - **Volume mounting** - Project files accessible read-only at `/workspace/project_files`
 

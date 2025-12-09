@@ -34,9 +34,25 @@ class SetupEnvironmentTool(Tool):
             "Set up a sandbox environment for code execution. **Call this FIRST** before using "
             "bash, file_read, file_write, edit, or search tools. "
             "Choose the appropriate environment based on the user's task:\n\n"
-            "- **python3.13**: Python 3.13 (RECOMMENDED - latest stable Python for general purpose, data science, ML, web scraping)\n"
-            "- **nodejs**: Node.js (JavaScript/TypeScript development, web apps, React/Vue/Angular)\n"
-            "- **cpp**: C++ (systems programming, performance-critical code, compilation)\n\n"
+            "**Python:**\n"
+            "- **python3.13**: Python 3.13 (RECOMMENDED - latest stable, includes numpy, pandas, matplotlib, scikit-learn)\n"
+            "- **python3.12**: Python 3.12\n"
+            "- **python3.11**: Python 3.11\n\n"
+            "**JavaScript/TypeScript:**\n"
+            "- **nodejs**: Node.js 22 with TypeScript, ESLint, Prettier\n\n"
+            "**JVM Languages:**\n"
+            "- **java**: Java 21 (OpenJDK) with Maven and Gradle\n"
+            "- **kotlin**: Kotlin with Gradle\n"
+            "- **scala**: Scala with sbt\n\n"
+            "**Systems Languages:**\n"
+            "- **go**: Go 1.23\n"
+            "- **rust**: Rust 1.83 with Cargo\n"
+            "- **cpp**: C++ with GCC 14, Clang, CMake, GDB\n\n"
+            "**Scripting Languages:**\n"
+            "- **ruby**: Ruby 3.3 with Bundler, RSpec\n"
+            "- **php**: PHP 8.3 with Composer\n\n"
+            "**.NET:**\n"
+            "- **dotnet**: .NET 8 SDK (C#, F#)\n\n"
             "Once the environment is set up, you can use file and bash tools to work in it. "
             "The sandbox is isolated and persistent for this chat session."
         )
@@ -48,8 +64,10 @@ class SetupEnvironmentTool(Tool):
                 name="environment_type",
                 type="string",
                 description=(
-                    "Type of environment to set up. Must be one of: "
-                    "'python3.13' (recommended), 'nodejs', 'cpp'"
+                    "Type of environment to set up. Options: "
+                    "'python3.13' (recommended), 'python3.12', 'python3.11', "
+                    "'nodejs', 'java', 'kotlin', 'scala', 'go', 'rust', 'cpp', "
+                    "'ruby', 'php', 'dotnet'"
                 ),
                 required=True,
             ),
@@ -78,7 +96,20 @@ class SetupEnvironmentTool(Tool):
         """
         try:
             # Validate environment type
-            valid_types = ["python3.13", "nodejs", "cpp"]
+            valid_types = [
+                # Python
+                "python3.13", "python3.12", "python3.11",
+                # JavaScript/TypeScript
+                "nodejs",
+                # JVM languages
+                "java", "kotlin", "scala",
+                # Systems languages
+                "go", "rust", "cpp",
+                # Scripting languages
+                "ruby", "php",
+                # .NET
+                "dotnet",
+            ]
             if environment_type not in valid_types:
                 return ToolResult(
                     success=False,
