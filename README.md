@@ -47,6 +47,11 @@ Watch AI agents break down complex tasks into logical steps - setup, edit, run, 
 
 ![Multi-step workflow](docs/images/multi-step-workflow.png)
 
+### Complex Task Handling with Error Recovery
+Agents tackle challenging tasks like video encoding with FFmpeg, automatically recovering from errors and iterating until success. This example shows 13 steps with multiple retries to produce a working MP4 file. (tested with OpenAI GPT-5-mini)
+
+![Complex workflow](docs/images/complex-workflow.png)
+
 ## Features
 
 ### Autonomous Agents
