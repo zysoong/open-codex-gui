@@ -27,6 +27,11 @@ BreezeRun is a self-hosted alternative to cloud-based AI coding assistants. It p
 
 ## Feature Highlights
 
+### Secure Multi-Provider API Key Management
+Store API keys for 10+ LLM providers securely with AES-128 encryption. Keys are never displayed after saving and only decrypted when making API calls.
+
+![API key settings](docs/images/settings-api-keys.png)
+
 ### Flexible Project Management
 Organize your work into projects with multiple chat sessions. Configure LLM providers and models per project, upload files, and manage agent settings.
 

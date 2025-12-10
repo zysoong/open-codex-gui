@@ -36,9 +36,7 @@ class TestKeyEncryptionService:
             os.environ.pop("MASTER_ENCRYPTION_KEY", None)
 
             # Mock the env_path to use our temp file
-            with patch(
-                "app.core.security.encryption.os.path.join", return_value=str(env_file)
-            ):
+            with patch("app.core.security.encryption.os.path.join", return_value=str(env_file)):
                 with patch(
                     "app.core.security.encryption.os.path.abspath",
                     return_value=str(env_file),
