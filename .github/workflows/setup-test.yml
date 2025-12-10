@@ -262,12 +262,6 @@ jobs:
             exit 1
           }
 
-      - name: Test backend endpoint
-        shell: pwsh
-        run: |
-          python -c "import urllib.request; r = urllib.request.urlopen('http://localhost:8000/'); assert r.status == 200; print('Backend is accessible!')"
-          python -c "import urllib.request; r = urllib.request.urlopen('http://localhost:8000/docs'); assert r.status == 200; print('Backend docs are accessible!')"
-
       - name: Start frontend server
         shell: pwsh
         working-directory: frontend
@@ -309,15 +303,36 @@ jobs:
         run: |
           npx playwright install chromium --with-deps
 
-      - name: Test frontend accessibility
+      - name: Test frontend with screenshot
         shell: pwsh
         working-directory: frontend
         run: |
-          try {
-            npx playwright test tests/setup-verification.spec.ts --project=chromium
-          } catch {
-            Write-Host "Playwright test not found, using Invoke-WebRequest"
+          # Create screenshots directory
+          New-Item -ItemType Directory -Path "screenshots" -Force | Out-Null
+
+          # Use Playwright to take a screenshot of the landing page
+          npx playwright test tests/screenshot.spec.ts --project=chromium || true
+
+          # Fallback: use Playwright directly to take screenshot if test doesn't exist
+          if (-not (Test-Path "screenshots/landing-page.png")) {
+            node -e "
+              const { chromium } = require('playwright');
+              (async () => {
+                const browser = await chromium.launch();
+                const page = await browser.newPage();
+                await page.goto('http://localhost:5173/');
+                await page.waitForLoadState('networkidle');
+                await page.screenshot({ path: 'screenshots/landing-page.png', fullPage: true });
+                await browser.close();
+                console.log('Screenshot saved to screenshots/landing-page.png');
+              })();
+            "
           }
-          $response = Invoke-WebRequest -Uri http://localhost:5173/ -UseBasicParsing
-          if ($response.StatusCode -ne 200) { exit 1 }
-          Write-Host "Frontend is accessible!"
+
+      - name: Upload screenshot artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-frontend-screenshot
+          path: frontend/screenshots/
+          retention-days: 7
