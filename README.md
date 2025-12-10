@@ -195,26 +195,6 @@ docker-compose up -d
 # Open http://localhost:3000
 ```
 
-## Configuration
-
-Create `backend/.env`:
-
-```bash
-
-# Database
-DATABASE_URL=sqlite+aiosqlite:///./data/breezerun.db
-
-# Security
-SECRET_KEY=generate-a-random-key
-ENCRYPTION_KEY=generate-a-32-byte-key
-
-# Docker
-DOCKER_HOST=unix:///var/run/docker.sock
-CONTAINER_PREFIX=breezerun
-```
-
-See [backend/README.md](backend/README.md) for all configuration options.
-
 ## Architecture
 
 ```
