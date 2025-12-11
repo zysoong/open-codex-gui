@@ -70,10 +70,11 @@ def validate_file_path(path: str, allowed_base: str = "/workspace") -> bool:
     Returns:
         True if valid, False otherwise
     """
-    # Normalize path
-    import os
+    # Use posixpath for Linux container paths (not os.path which is platform-dependent)
+    # On Windows, os.path.normpath would convert /workspace to \workspace, breaking validation
+    import posixpath
 
-    normalized = os.path.normpath(path)
+    normalized = posixpath.normpath(path)
 
     # Check if path starts with allowed base
     if not normalized.startswith(allowed_base):
