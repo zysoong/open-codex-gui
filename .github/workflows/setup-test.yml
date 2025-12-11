@@ -161,7 +161,7 @@ jobs:
           curl -f http://localhost:5173/ || exit 1
 
   # ============================================
-  # Test on Windows
+  # Test on Windows (using start.ps1)
   # ============================================
   test-windows:
     name: Test Start - Windows
@@ -172,7 +172,8 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # Pre-install dependencies for faster CI (skip Chocolatey)
+      # Pre-install Python and Node.js via GitHub Actions (faster than Chocolatey)
+      # The script will detect these and skip installation
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -183,35 +184,14 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
 
-      - name: Install Poetry
+      - name: Run start.ps1 script
         shell: pwsh
         run: |
-          (Invoke-WebRequest -Uri https://install.python-poetry.org -UseBasicParsing).Content | python -
-          $env:Path += ";$env:APPDATA\Python\Scripts"
-          echo "$env:APPDATA\Python\Scripts" >> $env:GITHUB_PATH
-
-      - name: Setup backend
-        shell: pwsh
-        working-directory: backend
-        run: |
-          poetry install --with dev
-
-          # Create .env file
-          $encryptionKey = poetry run python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
-          @"
-          DATABASE_URL=sqlite+aiosqlite:///./data/breezerun.db
-          HOST=127.0.0.1
-          PORT=8000
-          CORS_ORIGINS=http://localhost:3000,http://localhost:5173,http://localhost:5174
-          MASTER_ENCRYPTION_KEY=$encryptionKey
-          "@ | Set-Content ".env"
-
-          New-Item -ItemType Directory -Path "data" -Force | Out-Null
-
-      - name: Setup frontend
-        shell: pwsh
-        working-directory: frontend
-        run: npm install
+          # Run the actual start.ps1 script with -SkipDocker -NoStart flags
+          # -SkipDocker: Docker Desktop cannot be installed on GitHub Actions Windows runners
+          #              (requires GUI, restart, and Hyper-V which aren't available in CI)
+          # -NoStart: Don't start the servers, just set up dependencies
+          powershell -ExecutionPolicy Bypass -File start.ps1 -SkipDocker -NoStart
 
       - name: Verify backend dependencies
         shell: pwsh
@@ -226,6 +206,36 @@ jobs:
         run: |
           npm list vite
           npm list react
+
+      - name: Verify .env file was created
+        shell: pwsh
+        working-directory: backend
+        run: |
+          if (Test-Path ".env") {
+            Write-Host ".env file exists - OK"
+            # Verify it contains the encryption key
+            $content = Get-Content ".env" -Raw
+            if ($content -match "MASTER_ENCRYPTION_KEY=") {
+              Write-Host "MASTER_ENCRYPTION_KEY is set - OK"
+            } else {
+              Write-Host "ERROR: MASTER_ENCRYPTION_KEY not found in .env"
+              exit 1
+            }
+          } else {
+            Write-Host "ERROR: .env file was not created"
+            exit 1
+          }
+
+      - name: Verify data directory was created
+        shell: pwsh
+        working-directory: backend
+        run: |
+          if (Test-Path "data") {
+            Write-Host "data directory exists - OK"
+          } else {
+            Write-Host "ERROR: data directory was not created"
+            exit 1
+          }
 
       # Note: Skipping server start and Playwright tests on Windows CI
       # Windows GitHub Actions runners have known issues with localhost connections
