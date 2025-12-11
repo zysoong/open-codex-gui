@@ -1,2 +1,5 @@
 .claude
 .idea
+
+# Windows embedded runtimes (downloaded on first run)
+local_venv/

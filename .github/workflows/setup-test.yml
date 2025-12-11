@@ -161,7 +161,7 @@ jobs:
           curl -f http://localhost:5173/ || exit 1
 
   # ============================================
-  # Test on Windows (using start.ps1)
+  # Test on Windows (using start.ps1 with embedded runtimes)
   # ============================================
   test-windows:
     name: Test Start - Windows
@@ -172,40 +172,59 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # Pre-install Python and Node.js via GitHub Actions (faster than Chocolatey)
-      # The script will detect these and skip installation
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-
+      # No pre-installation needed - start.ps1 downloads embedded Python and Node.js
       - name: Run start.ps1 script
         shell: pwsh
         run: |
           # Run the actual start.ps1 script with -SkipDocker -NoStart flags
+          # The script downloads embedded Python and Node.js to local_venv/
           # -SkipDocker: Docker Desktop cannot be installed on GitHub Actions Windows runners
-          #              (requires GUI, restart, and Hyper-V which aren't available in CI)
           # -NoStart: Don't start the servers, just set up dependencies
           powershell -ExecutionPolicy Bypass -File start.ps1 -SkipDocker -NoStart
+
+      - name: Verify embedded runtimes installed
+        shell: pwsh
+        run: |
+          # Check that local_venv directory was created with embedded runtimes
+          if (Test-Path "local_venv/python/python.exe") {
+            $pyVersion = & "local_venv/python/python.exe" --version
+            Write-Host "Embedded Python: $pyVersion - OK"
+          } else {
+            Write-Host "ERROR: Embedded Python not found"
+            exit 1
+          }
+
+          if (Test-Path "local_venv/node/node.exe") {
+            $nodeVersion = & "local_venv/node/node.exe" --version
+            Write-Host "Embedded Node.js: $nodeVersion - OK"
+          } else {
+            Write-Host "ERROR: Embedded Node.js not found"
+            exit 1
+          }
+
+          if (Test-Path "local_venv/python/Scripts/poetry.exe") {
+            $poetryVersion = & "local_venv/python/Scripts/poetry.exe" --version
+            Write-Host "Poetry: $poetryVersion - OK"
+          } else {
+            Write-Host "ERROR: Poetry not found"
+            exit 1
+          }
 
       - name: Verify backend dependencies
         shell: pwsh
         working-directory: backend
         run: |
-          poetry run python -c "import fastapi; print('FastAPI OK')"
-          poetry run python -c "import litellm; print('LiteLLM OK')"
+          $poetry = "${{ github.workspace }}/local_venv/python/Scripts/poetry.exe"
+          & $poetry run python -c "import fastapi; print('FastAPI OK')"
+          & $poetry run python -c "import litellm; print('LiteLLM OK')"
 
       - name: Verify frontend dependencies
         shell: pwsh
         working-directory: frontend
         run: |
-          npm list vite
-          npm list react
+          $npm = "${{ github.workspace }}/local_venv/node/npm.cmd"
+          & $npm list vite
+          & $npm list react
 
       - name: Verify .env file was created
         shell: pwsh
@@ -237,12 +256,10 @@ jobs:
             exit 1
           }
 
-      # Note: Skipping server start and Playwright tests on Windows CI
-      # Windows GitHub Actions runners have known issues with localhost connections
-      # The Linux and macOS tests validate the full server functionality
       - name: Verify frontend build works
         shell: pwsh
         working-directory: frontend
         run: |
-          npm run build
+          $npm = "${{ github.workspace }}/local_venv/node/npm.cmd"
+          & $npm run build
           Write-Host "Frontend build successful!"
