@@ -3,14 +3,6 @@ name: Test Start Scripts
 on:
   push:
     branches: [main, develop, feature/*]
-    paths:
-      - 'start.sh'
-      - 'start.ps1'
-      - '.github/workflows/setup-test.yml'
-      - 'backend/pyproject.toml'
-      - 'backend/poetry.lock'
-      - 'frontend/package.json'
-      - 'frontend/package-lock.json'
   pull_request:
     branches: [main, develop]
   workflow_dispatch:  # Allow manual triggering
