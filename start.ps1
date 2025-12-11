@@ -13,12 +13,121 @@ $ErrorActionPreference = "Stop"
 $PYTHON_VERSION = "3.12"
 $NODE_VERSION = "20"
 
+# Capture script directory at load time (before any functions run)
+$script:ScriptDirectory = if ($PSScriptRoot) { 
+    $PSScriptRoot 
+} elseif ($MyInvocation.MyCommand.Path) { 
+    Split-Path -Parent $MyInvocation.MyCommand.Path 
+} else { 
+    Get-Location 
+}
+
+# Store the detected Python command globally
+$script:PythonCmd = $null
+
+function Test-RealPython {
+    param([string]$Command)
+    
+    # Check if command exists
+    $cmdInfo = Get-Command $Command -ErrorAction SilentlyContinue
+    if (-not $cmdInfo) {
+        return $false
+    }
+    
+    # Skip Windows Store stub (it's in WindowsApps folder)
+    if ($cmdInfo.Source -and $cmdInfo.Source -match "WindowsApps") {
+        return $false
+    }
+    
+    # Try to run it and check for valid version output
+    try {
+        $output = & $Command --version 2>&1
+        if ($output -match "Python \d+\.\d+") {
+            return $true
+        }
+    } catch {
+        # Command failed to run properly
+    }
+    
+    return $false
+}
+
+function Get-PythonCommand {
+    # Return cached result if already found
+    if ($script:PythonCmd) {
+        return $script:PythonCmd
+    }
+    
+    # Try py launcher first (most reliable on Windows)
+    if (Test-RealPython "py") {
+        $script:PythonCmd = "py"
+        return "py"
+    }
+    
+    # Try python3
+    if (Test-RealPython "python3") {
+        $script:PythonCmd = "python3"
+        return "python3"
+    }
+    
+    # Try python (but avoid Windows Store stub)
+    if (Test-RealPython "python") {
+        $script:PythonCmd = "python"
+        return "python"
+    }
+    
+    return $null
+}
+
+function Get-PythonVersion {
+    $pythonCmd = Get-PythonCommand
+    if (-not $pythonCmd) {
+        return $null
+    }
+    
+    try {
+        $output = & $pythonCmd --version 2>&1
+        if ($output -match "Python (\d+\.\d+\.\d+)") {
+            return $matches[1]
+        } elseif ($output -match "Python (\d+\.\d+)") {
+            return $matches[1]
+        }
+    } catch {
+        # Failed to get version
+    }
+    
+    return $null
+}
+
+function Test-RealNode {
+    $cmdInfo = Get-Command "node" -ErrorAction SilentlyContinue
+    if (-not $cmdInfo) {
+        return $false
+    }
+    
+    # Skip if it's a Windows Store stub
+    if ($cmdInfo.Source -and $cmdInfo.Source -match "WindowsApps") {
+        return $false
+    }
+    
+    try {
+        $output = & node --version 2>&1
+        if ($output -match "v\d+\.\d+") {
+            return $true
+        }
+    } catch {
+        # Command failed
+    }
+    
+    return $false
+}
+
 function Write-Header {
     Write-Host ""
-    Write-Host "╔════════════════════════════════════════════════════════════╗" -ForegroundColor Blue
-    Write-Host "║                    BreezeRun Setup                         ║" -ForegroundColor Blue
-    Write-Host "║         Run your code like a breeze                        ║" -ForegroundColor Blue
-    Write-Host "╚════════════════════════════════════════════════════════════╝" -ForegroundColor Blue
+    Write-Host "+=============================================================+" -ForegroundColor Blue
+    Write-Host "|                    BreezeRun Setup                          |" -ForegroundColor Blue
+    Write-Host "|         Run your code like a breeze                         |" -ForegroundColor Blue
+    Write-Host "+=============================================================+" -ForegroundColor Blue
     Write-Host ""
 }
 
@@ -67,11 +176,14 @@ function Install-Chocolatey {
 function Install-Python {
     Write-Step "Checking Python installation..."
 
-    if (Test-Command "python") {
-        $pythonVersion = python --version 2>&1
-        if ($pythonVersion -match "3\.(11|12|13)") {
-            Write-Success "Python is installed: $pythonVersion"
+    $pythonCmd = Get-PythonCommand
+    if ($pythonCmd) {
+        $version = Get-PythonVersion
+        if ($version -and $version -match "^3\.(11|12|13)") {
+            Write-Success "Python is installed: Python $version (using '$pythonCmd')"
             return
+        } elseif ($version) {
+            Write-Warning "Python $version found, but version 3.11+ is recommended"
         }
     }
 
@@ -80,17 +192,26 @@ function Install-Python {
 
     # Refresh PATH
     $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
+    
+    # Clear cached python command so it gets re-detected
+    $script:PythonCmd = $null
 }
 
 function Install-NodeJS {
     Write-Step "Checking Node.js installation..."
 
-    if (Test-Command "node") {
-        $nodeVersion = node --version
-        $majorVersion = [int]($nodeVersion -replace 'v(\d+)\..*', '$1')
-        if ($majorVersion -ge 18) {
-            Write-Success "Node.js is installed: $nodeVersion"
-            return
+    if (Test-RealNode) {
+        try {
+            $nodeVersion = node --version 2>&1
+            $majorVersion = [int]($nodeVersion -replace 'v(\d+)\..*', '$1')
+            if ($majorVersion -ge 18) {
+                Write-Success "Node.js is installed: $nodeVersion"
+                return
+            } else {
+                Write-Warning "Node.js $nodeVersion found, but version 18+ is required"
+            }
+        } catch {
+            Write-Warning "Could not determine Node.js version"
         }
     }
 
@@ -124,8 +245,15 @@ function Install-Poetry {
         return
     }
 
-    Write-Step "Installing Poetry..."
-    (Invoke-WebRequest -Uri https://install.python-poetry.org -UseBasicParsing).Content | python -
+    $pythonCmd = Get-PythonCommand
+    if (-not $pythonCmd) {
+        Write-Error "Python is required to install Poetry. Please install Python first."
+        return
+    }
+
+    Write-Step "Installing Poetry using $pythonCmd..."
+    $installerContent = (Invoke-WebRequest -Uri https://install.python-poetry.org -UseBasicParsing).Content
+    $installerContent | & $pythonCmd -
 
     # Add Poetry to PATH
     $poetryPath = "$env:APPDATA\Python\Scripts"
@@ -136,6 +264,11 @@ function Install-Poetry {
     $poetryPath2 = "$env:LOCALAPPDATA\Programs\Python\Python313\Scripts"
     if (Test-Path $poetryPath2) {
         $env:Path += ";$poetryPath2"
+    }
+    
+    $poetryPath3 = "$env:LOCALAPPDATA\Programs\Python\Python312\Scripts"
+    if (Test-Path $poetryPath3) {
+        $env:Path += ";$poetryPath3"
     }
 }
 
@@ -167,8 +300,13 @@ function Setup-Backend {
         if (-not (Test-Path ".env")) {
             Write-Step "Creating .env file..."
 
-            # Generate encryption key
-            $encryptionKey = python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+            # Generate encryption key using detected Python
+            $pythonCmd = Get-PythonCommand
+            if (-not $pythonCmd) {
+                Write-Error "Python is required to generate encryption key"
+                return
+            }
+            $encryptionKey = & $pythonCmd -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 
             if (Test-Path ".env.example") {
                 Copy-Item ".env.example" ".env"
@@ -219,7 +357,17 @@ function Setup-Frontend {
 }
 
 function Build-DockerImages {
-    if ((Test-Command "docker") -and (docker info 2>&1 | Out-Null; $?)) {
+    $dockerAvailable = $false
+    
+    if (Test-Command "docker") {
+        # Check if Docker daemon is running
+        $null = docker info 2>&1
+        if ($?) {
+            $dockerAvailable = $true
+        }
+    }
+    
+    if ($dockerAvailable) {
         Write-Step "Building Docker sandbox images..."
 
         Push-Location "backend\app\core\sandbox\environments"
@@ -249,23 +397,34 @@ function Test-Installation {
 
     $errors = 0
 
-    if (-not (Test-Command "python")) {
-        Write-Error "Python is not installed"
+    $pythonCmd = Get-PythonCommand
+    if (-not $pythonCmd) {
+        Write-Error "Python is not installed (or only Windows Store stub found)"
         $errors++
+    } else {
+        $version = Get-PythonVersion
+        Write-Success "Python verified: $version (using '$pythonCmd')"
     }
 
-    if (-not (Test-Command "node")) {
+    if (-not (Test-RealNode)) {
         Write-Error "Node.js is not installed"
         $errors++
+    } else {
+        $nodeVersion = node --version 2>&1
+        Write-Success "Node.js verified: $nodeVersion"
     }
 
     if (-not (Test-Command "poetry")) {
         Write-Error "Poetry is not installed"
         $errors++
+    } else {
+        Write-Success "Poetry verified"
     }
 
     if (-not (Test-Command "docker")) {
         Write-Warning "Docker is not installed (optional but recommended)"
+    } else {
+        Write-Success "Docker verified"
     }
 
     if ($errors -gt 0) {
@@ -278,9 +437,9 @@ function Test-Installation {
 
 function Write-Usage {
     Write-Host ""
-    Write-Host "════════════════════════════════════════════════════════════" -ForegroundColor Green
+    Write-Host "============================================================" -ForegroundColor Green
     Write-Host "                    Setup Complete!                          " -ForegroundColor Green
-    Write-Host "════════════════════════════════════════════════════════════" -ForegroundColor Green
+    Write-Host "============================================================" -ForegroundColor Green
     Write-Host ""
     Write-Host "To start BreezeRun:"
     Write-Host ""
@@ -304,11 +463,8 @@ function Write-Usage {
 function Main {
     Write-Header
 
-    # Get script directory
-    $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-    if ($scriptDir) {
-        Set-Location $scriptDir
-    }
+    # Change to script directory
+    Set-Location $script:ScriptDirectory
 
     # Check for admin privileges (recommended for Chocolatey)
     $isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
@@ -352,11 +508,8 @@ function Start-Services {
         $env:Path += ";$poetryPath"
     }
 
-    # Get script directory
-    $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-    if (-not $scriptDir) {
-        $scriptDir = Get-Location
-    }
+    # Use script directory
+    $scriptDir = $script:ScriptDirectory
 
     # Start backend in a new window
     Write-Step "Starting backend server..."
@@ -401,9 +554,9 @@ function Start-Services {
     }
 
     Write-Host ""
-    Write-Host "════════════════════════════════════════════════════════════" -ForegroundColor Green
+    Write-Host "============================================================" -ForegroundColor Green
     Write-Host "                BreezeRun is running!                        " -ForegroundColor Green
-    Write-Host "════════════════════════════════════════════════════════════" -ForegroundColor Green
+    Write-Host "============================================================" -ForegroundColor Green
     Write-Host ""
     Write-Host "  Backend:  http://localhost:8000"
     Write-Host "  Frontend: http://localhost:5173"
