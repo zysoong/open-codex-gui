@@ -257,7 +257,7 @@ Pre-configured agents for common tasks:
 | `data_analyst` | Data analysis with pandas, matplotlib |
 | `code_reviewer` | Read-only code review |
 | `test_writer` | Test generation |
-| `default` | General purpose (Python 3.13) |
+| `default` | General purpose (Coding tasks preferred) |
 
 ## Example Usage
 
