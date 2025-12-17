@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/images/logo.png" alt="Open Claude Pilot Logo" width="120">
+<img src="docs/images/logo.jpg" alt="Open Claude Pilot Logo" width="120">
 
 # Open Claude Pilot
 
