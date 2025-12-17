@@ -21,7 +21,7 @@ class ProjectVolumeStorage:
     Each project gets its own Docker volume where uploaded files are stored.
     Session containers mount this volume read-only at /workspace/project_files/.
 
-    Volume naming: breezerun-project-{project_id}
+    Volume naming: openclaudeui-project-{project_id}
     """
 
     def __init__(self, docker_client: Optional[docker.DockerClient] = None):
@@ -34,7 +34,7 @@ class ProjectVolumeStorage:
 
     def _get_volume_name(self, project_id: str) -> str:
         """Get Docker volume name for a project."""
-        return f"breezerun-project-{project_id}"
+        return f"openclaudeui-project-{project_id}"
 
     async def ensure_volume(self, project_id: str) -> str:
         """Create project volume if it doesn't exist.

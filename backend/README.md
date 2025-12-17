@@ -1,4 +1,4 @@
-# BreezeRun Backend
+# Open Claude UI Backend
 
 <div align="center">
 
@@ -15,7 +15,7 @@
 
 ## Overview
 
-The BreezeRun backend provides a ReAct-based agent system with sandboxed code execution. It supports multiple LLM providers via LiteLLM and executes code safely in isolated Docker containers.
+The Open Claude UI backend powers the chatbot with a ReAct-based agent system and sandboxed code execution. It supports 100+ LLM providers via LiteLLM and executes code safely in isolated Docker containers.
 
 ## Features
 
@@ -91,8 +91,8 @@ poetry run python -m app.main
 ### Docker
 
 ```bash
-docker build -t breezerun-backend .
-docker run -p 8000:8000 --env-file .env -v /var/run/docker.sock:/var/run/docker.sock breezerun-backend
+docker build -t open-claude-ui-backend .
+docker run -p 8000:8000 --env-file .env -v /var/run/docker.sock:/var/run/docker.sock open-claude-ui-backend
 ```
 
 ## Configuration
@@ -107,7 +107,7 @@ GOOGLE_API_KEY=...
 GROQ_API_KEY=...
 
 # Database
-DATABASE_URL=sqlite+aiosqlite:///./data/breezerun.db
+DATABASE_URL=sqlite+aiosqlite:///./data/open-claude-ui.db
 
 # Security
 SECRET_KEY=your-secret-key
@@ -120,7 +120,7 @@ CORS_ORIGINS=["http://localhost:5173"]
 
 # Docker
 DOCKER_HOST=unix:///var/run/docker.sock
-CONTAINER_PREFIX=breezerun
+CONTAINER_PREFIX=openclaudeui
 CONTAINER_POOL_SIZE=5
 
 # Storage
@@ -371,7 +371,7 @@ newgrp docker
 
 ```bash
 # Enable WAL mode
-sqlite3 data/breezerun.db "PRAGMA journal_mode=WAL;"
+sqlite3 data/open-claude-ui.db "PRAGMA journal_mode=WAL;"
 ```
 
 ### Port in Use

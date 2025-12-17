@@ -1,6 +1,6 @@
-# Contributing to BreezeRun
+# Contributing to Open Claude UI
 
-Thank you for your interest in contributing to BreezeRun! This document provides guidelines and information for contributors.
+Thank you for your interest in contributing to Open Claude UI! This document provides guidelines and information for contributors.
 
 ## Getting Started
 
@@ -15,8 +15,8 @@ Thank you for your interest in contributing to BreezeRun! This document provides
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/zysoong/breezerun.git
-   cd breezerun
+   git clone https://github.com/zysoong/open-claude-ui.git
+   cd open-claude-ui
    ```
 
 2. **Backend setup**
@@ -135,4 +135,4 @@ When reporting issues, please include:
 
 If you have questions about contributing, feel free to open an issue for discussion.
 
-Thank you for contributing to BreezeRun!
+Thank you for contributing to Open Claude UI!

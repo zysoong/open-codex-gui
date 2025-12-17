@@ -3,7 +3,7 @@ import { test, expect } from '@playwright/test';
 /**
  * Setup Verification Tests
  *
- * These tests verify that BreezeRun is properly set up and accessible.
+ * These tests verify that Open Claude UI is properly set up and accessible.
  * Used by the CI/CD pipeline to validate setup scripts.
  */
 
@@ -63,7 +63,7 @@ test.describe('Setup Verification', () => {
     expect(response.ok()).toBeTruthy();
 
     const data = await response.json();
-    expect(data.name).toBe('BreezeRun Backend');
+    expect(data.name).toBe('Open Claude UI Backend');
     expect(data.version).toBeDefined();
   });
 

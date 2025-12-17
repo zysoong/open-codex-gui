@@ -1,5 +1,5 @@
 #!/bin/bash
-# BreezeRun Start Script for macOS and Linux
+# Open Claude UI Start Script for macOS and Linux
 # This script sets up the environment and starts the services
 
 set -e
@@ -18,8 +18,8 @@ NODE_VERSION="20"
 print_header() {
     echo -e "${BLUE}"
     echo "╔════════════════════════════════════════════════════════════╗"
-    echo "║                    BreezeRun Setup                         ║"
-    echo "║         Run your code like a breeze                        ║"
+    echo "║                  Open Claude UI Setup                      ║"
+    echo "║         Self-hosted Claude interface                       ║"
     echo "╚════════════════════════════════════════════════════════════╝"
     echo -e "${NC}"
 }
@@ -216,8 +216,8 @@ setup_backend() {
         else
             # Create new .env
             cat > .env << EOF
-# BreezeRun Backend Configuration
-DATABASE_URL=sqlite+aiosqlite:///./data/breezerun.db
+# Open Claude UI Backend Configuration
+DATABASE_URL=sqlite+aiosqlite:///./data/open-claude-ui.db
 HOST=127.0.0.1
 PORT=8000
 CORS_ORIGINS=http://localhost:3000,http://localhost:5173,http://localhost:5174
@@ -254,7 +254,7 @@ build_docker_images() {
 
         # Build only the default Python image for quick setup
         if [[ -f "python3.13.Dockerfile" ]]; then
-            docker build -t breezerun-env-python3.13:latest -f python3.13.Dockerfile . || print_warning "Failed to build Python 3.13 image"
+            docker build -t openclaudeui-env-python3.13:latest -f python3.13.Dockerfile . || print_warning "Failed to build Python 3.13 image"
         fi
 
         cd ../../../../..
@@ -305,7 +305,7 @@ print_usage() {
     echo -e "${GREEN}                    Setup Complete!                          ${NC}"
     echo -e "${GREEN}════════════════════════════════════════════════════════════${NC}"
     echo ""
-    echo "To start BreezeRun:"
+    echo "To start Open Claude UI:"
     echo ""
     echo "  1. Start the backend:"
     echo "     cd backend"
@@ -377,7 +377,7 @@ main() {
 
 # Start backend and frontend services
 start_services() {
-    print_step "Starting BreezeRun services..."
+    print_step "Starting Open Claude UI services..."
 
     # Ensure Poetry is in PATH
     export PATH="$HOME/.local/bin:$PATH"
@@ -418,7 +418,7 @@ start_services() {
 
     echo ""
     echo -e "${GREEN}════════════════════════════════════════════════════════════${NC}"
-    echo -e "${GREEN}                BreezeRun is running!                        ${NC}"
+    echo -e "${GREEN}              Open Claude UI is running!                     ${NC}"
     echo -e "${GREEN}════════════════════════════════════════════════════════════${NC}"
     echo ""
     echo "  Backend:  http://localhost:8000"

@@ -1,4 +1,4 @@
-# BreezeRun Start Script for Windows (PowerShell)
+# Open Claude UI Start Script for Windows (PowerShell)
 # This script sets up the environment using embedded/portable runtimes
 # and starts the services without polluting the system PATH
 # Run with: powershell -ExecutionPolicy Bypass -File start.ps1
@@ -36,8 +36,8 @@ $NpxCmd = Join-Path $NodeDir "npx.cmd"
 function Write-Header {
     Write-Host ""
     Write-Host "+=============================================================+" -ForegroundColor Blue
-    Write-Host "|                    BreezeRun Setup                          |" -ForegroundColor Blue
-    Write-Host "|         Run your code like a breeze                         |" -ForegroundColor Blue
+    Write-Host "|                  Open Claude UI Setup                       |" -ForegroundColor Blue
+    Write-Host "|            Self-hosted Claude interface                     |" -ForegroundColor Blue
     Write-Host "|                                                             |" -ForegroundColor Blue
     Write-Host "|  Using embedded runtimes (no system PATH modification)      |" -ForegroundColor Blue
     Write-Host "+=============================================================+" -ForegroundColor Blue
@@ -327,8 +327,8 @@ function Setup-Backend {
                 Set-Content ".env" $content
             } else {
                 @"
-# BreezeRun Backend Configuration
-DATABASE_URL=sqlite+aiosqlite:///./data/breezerun.db
+# Open Claude UI Backend Configuration
+DATABASE_URL=sqlite+aiosqlite:///./data/open-claude-ui.db
 HOST=127.0.0.1
 PORT=8000
 CORS_ORIGINS=http://localhost:3000,http://localhost:5173,http://localhost:5174
@@ -398,7 +398,7 @@ function Build-DockerImages {
         try {
             # Build only the default Python image for quick setup
             if (Test-Path "python3.13.Dockerfile") {
-                docker build -t breezerun-env-python3.13:latest -f python3.13.Dockerfile .
+                docker build -t openclaudeui-env-python3.13:latest -f python3.13.Dockerfile .
                 if (-not $?) {
                     Write-Warning "Failed to build Python 3.13 image"
                 } else {
@@ -466,7 +466,7 @@ function Write-Usage {
     Write-Host ""
     Write-Host "Embedded runtimes installed in: $LocalVenv"
     Write-Host ""
-    Write-Host "To start BreezeRun, run this script again without -NoStart:"
+    Write-Host "To start Open Claude UI, run this script again without -NoStart:"
     Write-Host "    powershell -ExecutionPolicy Bypass -File start.ps1"
     Write-Host ""
     Write-Host "Or start manually:"
@@ -484,7 +484,7 @@ function Write-Usage {
 }
 
 function Start-Services {
-    Write-Step "Starting BreezeRun services..."
+    Write-Step "Starting Open Claude UI services..."
 
     # Temporarily modify PATH for verification
     $originalPath = $env:Path
@@ -576,11 +576,11 @@ function Start-Services {
     Write-Host ""
     if ($backendReady -and $frontendReady) {
         Write-Host "============================================================" -ForegroundColor Green
-        Write-Host "                BreezeRun is running!                        " -ForegroundColor Green
+        Write-Host "              Open Claude UI is running!                     " -ForegroundColor Green
         Write-Host "============================================================" -ForegroundColor Green
     } else {
         Write-Host "============================================================" -ForegroundColor Yellow
-        Write-Host "            BreezeRun started with warnings                  " -ForegroundColor Yellow
+        Write-Host "          Open Claude UI started with warnings               " -ForegroundColor Yellow
         Write-Host "============================================================" -ForegroundColor Yellow
     }
     Write-Host ""

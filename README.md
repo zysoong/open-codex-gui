@@ -1,8 +1,8 @@
 <div align="center">
 
-<img src="docs/images/logo.png" alt="BreezeRun" width="400">
+# Open Claude UI
 
-**Run your code like a breeze** - Self-hosted AI assistant with web interface, integrated autonomous agents and sandboxed execution
+**Self-hosted AI chatbot** - Web interface with integrated coding agents and sandboxed code execution (UI inspired by Claude)
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![Node.js 18+](https://img.shields.io/badge/node-18+-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
@@ -15,13 +15,13 @@
 
 ---
 
-## What is BreezeRun?
+## What is Open Claude UI?
 
-BreezeRun is a self-hosted alternative to cloud-based AI coding assistants. It provides a web interface for interacting with autonomous AI agents that can write, execute, and debug code in isolated Docker containers.
+Open Claude UI is a self-hosted AI chatbot with integrated coding agents. It features autonomous AI agents that can write, execute, and debug code in isolated Docker containers. The clean, intuitive interface is inspired by the Claude web UI, bringing a familiar chat experience to your own infrastructure.
 
 **Key benefits:**
 - **Privacy** - Your code stays on your infrastructure
-- **Choice** - Use any LLM provider (Ollama, OpenAI, Anthropic, Google, or 100+ others via LiteLLM)
+- **Choice** - Use OpenAI, Anthropic, Google, Ollama, or 100+ other providers via LiteLLM
 - **Control** - Configure agents, tools, and execution environments per project
 - **Safety** - All code execution happens in sandboxed Docker containers
 
@@ -43,7 +43,7 @@ Ask the agent to generate code and see results instantly. The agent sets up the 
 ![Agent execution](docs/images/agent-execution.png)
 
 ### Multi-Step Agent Workflows
-Watch AI agents break down complex tasks into logical steps - setup, edit, run, and read - with full visibility into each action. Download generated files directly from the UI, just like claude.ai.
+Watch AI agents break down complex tasks into logical steps - setup, edit, run, and read - with full visibility into each action. Download generated files directly from the chat interface.
 
 ![Multi-step workflow](docs/images/multi-step-workflow.png)
 
@@ -58,16 +58,16 @@ The easiest way to get started is using our start scripts that automatically ins
 
 **macOS / Linux:**
 ```bash
-git clone https://github.com/zysoong/breezerun.git
-cd breezerun
+git clone https://github.com/zysoong/open-claude-ui.git
+cd open-claude-ui
 chmod +x start.sh
 ./start.sh
 ```
 
 **Windows (PowerShell):**
 ```powershell
-git clone https://github.com/zysoong/breezerun.git
-cd breezerun
+git clone https://github.com/zysoong/open-claude-ui.git
+cd open-claude-ui
 powershell -ExecutionPolicy Bypass -File start.ps1
 ```
 
@@ -180,8 +180,8 @@ If you prefer manual setup instead of using the setup scripts:
 
 ```bash
 # Clone the repository
-git clone https://github.com/zysoong/breezerun.git
-cd breezerun
+git clone https://github.com/zysoong/open-claude-ui.git
+cd open-claude-ui
 
 # Backend setup
 cd backend
@@ -281,7 +281,7 @@ Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for gui
 
 ## Related Projects
 
-BreezeRun is inspired by:
+Open Claude UI draws inspiration from:
 
 - [OpenHands](https://github.com/All-Hands-AI/OpenHands) - Open-source AI software engineers
 - [Aider](https://aider.chat) - AI pair programming in terminal
@@ -295,6 +295,6 @@ MIT License - see [LICENSE](LICENSE) for details.
 
 <div align="center">
 
-**[Get Started](#quick-start)** · **[Report Bug](https://github.com/zysoong/breezerun/issues)** · **[Request Feature](https://github.com/zysoong/breezerun/issues)**
+**[Get Started](#quick-start)** · **[Report Bug](https://github.com/zysoong/open-claude-ui/issues)** · **[Request Feature](https://github.com/zysoong/open-claude-ui/issues)**
 
 </div>

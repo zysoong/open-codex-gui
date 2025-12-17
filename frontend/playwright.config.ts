@@ -1,7 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
 /**
- * Playwright Configuration for BreezeRun Frontend
+ * Playwright Configuration for Open Claude UI Frontend
  * @see https://playwright.dev/docs/test-configuration
  */
 export default defineConfig({

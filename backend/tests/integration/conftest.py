@@ -71,7 +71,7 @@ async def integration_app(integration_engine, integration_session):
     Uses a real (in-memory) database with all routes configured.
     """
     app = FastAPI(
-        title="BreezeRun Backend (Test)",
+        title="Open Claude UI Backend (Test)",
         description="Integration test instance",
         version="test",
     )
@@ -99,7 +99,7 @@ async def integration_app(integration_engine, integration_session):
     @app.get("/")
     async def root():
         return {
-            "name": "BreezeRun Backend",
+            "name": "Open Claude UI Backend",
             "version": "test",
             "status": "running",
         }

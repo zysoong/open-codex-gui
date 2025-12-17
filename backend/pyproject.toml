@@ -1,7 +1,7 @@
 [tool.poetry]
-name = "breezerun-backend"
+name = "open-claude-ui-backend"
 version = "0.1.0"
-description = "BreezeRun - Run your code like a breeze"
+description = "Open Claude UI - Self-hosted Claude interface"
 authors = ["Ziyang Song <soongziyang@gmail.com>"]
 readme = "README.md"
 package-mode = false

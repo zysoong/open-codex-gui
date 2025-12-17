@@ -38,25 +38,25 @@ class ContainerPoolManager:
         # Environment type to image mapping
         self.env_images = {
             # Python environments
-            "python3.11": "breezerun-env-python3.11:latest",
-            "python3.12": "breezerun-env-python3.12:latest",
-            "python3.13": "breezerun-env-python3.13:latest",
+            "python3.11": "openclaudeui-env-python3.11:latest",
+            "python3.12": "openclaudeui-env-python3.12:latest",
+            "python3.13": "openclaudeui-env-python3.13:latest",
             # JavaScript/TypeScript environments
-            "nodejs": "breezerun-env-nodejs:latest",
-            "node20": "breezerun-env-node20:latest",  # Legacy alias
+            "nodejs": "openclaudeui-env-nodejs:latest",
+            "node20": "openclaudeui-env-node20:latest",  # Legacy alias
             # JVM languages
-            "java": "breezerun-env-java:latest",
-            "kotlin": "breezerun-env-kotlin:latest",
-            "scala": "breezerun-env-scala:latest",
+            "java": "openclaudeui-env-java:latest",
+            "kotlin": "openclaudeui-env-kotlin:latest",
+            "scala": "openclaudeui-env-scala:latest",
             # Systems languages
-            "go": "breezerun-env-go:latest",
-            "rust": "breezerun-env-rust:latest",
-            "cpp": "breezerun-env-cpp:latest",
+            "go": "openclaudeui-env-go:latest",
+            "rust": "openclaudeui-env-rust:latest",
+            "cpp": "openclaudeui-env-cpp:latest",
             # Scripting languages
-            "ruby": "breezerun-env-ruby:latest",
-            "php": "breezerun-env-php:latest",
+            "ruby": "openclaudeui-env-ruby:latest",
+            "php": "openclaudeui-env-php:latest",
             # .NET
-            "dotnet": "breezerun-env-dotnet:latest",
+            "dotnet": "openclaudeui-env-dotnet:latest",
         }
 
     def _ensure_image_exists(self, env_type: str) -> str:
@@ -128,7 +128,7 @@ class ContainerPoolManager:
                 await self.destroy_container(session_id)
 
         # Check if orphaned container with same name exists in Docker
-        container_name = f"breezerun-sandbox-{session_id}"
+        container_name = f"openclaudeui-sandbox-{session_id}"
         try:
             existing = self.docker_client.containers.get(container_name)
             # Found orphaned container - remove it
@@ -179,7 +179,7 @@ class ContainerPoolManager:
                 network_mode="bridge",
                 mem_limit="1g",  # Memory limit
                 cpu_quota=50000,  # CPU limit (50% of one core)
-                name=f"breezerun-sandbox-{session_id}",
+                name=f"openclaudeui-sandbox-{session_id}",
             )
 
             # Install additional packages if specified

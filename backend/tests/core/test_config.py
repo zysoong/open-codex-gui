@@ -16,7 +16,7 @@ class TestSettings:
         with patch.dict(os.environ, {}, clear=True):
             settings = Settings()
 
-            assert settings.database_url == "sqlite+aiosqlite:///./data/breezerun.db"
+            assert settings.database_url == "sqlite+aiosqlite:///./data/open-claude-ui.db"
             assert settings.host == "127.0.0.1"
             assert settings.port == 8000
             assert settings.docker_container_pool_size == 5

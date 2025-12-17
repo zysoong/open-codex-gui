@@ -1,7 +1,7 @@
 {
-  "name": "breezerun-frontend",
+  "name": "open-claude-ui-frontend",
   "version": "0.1.0",
-  "description": "Frontend for BreezeRun - Run your code like a breeze",
+  "description": "Frontend for Open Claude UI - Self-hosted Claude interface",
   "main": "electron/main.js",
   "type": "module",
   "scripts": {

@@ -26,7 +26,7 @@ class VolumeStorage(WorkspaceStorage):
 
     def _get_volume_name(self, session_id: str) -> str:
         """Get volume name for a session."""
-        return f"breezerun-workspace-{session_id}"
+        return f"openclaudeui-workspace-{session_id}"
 
     async def write_file(self, session_id: str, container_path: str, content: bytes) -> bool:
         """Write content to a file in the Docker volume."""

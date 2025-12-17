@@ -1,4 +1,4 @@
-# BreezeRun Frontend
+# Open Claude UI Frontend
 
 <div align="center">
 
@@ -15,7 +15,7 @@
 
 ## Overview
 
-The BreezeRun frontend provides a real-time chat interface for interacting with autonomous AI coding agents. Built with React and TypeScript, it features optimized streaming, virtual scrolling, and rich tool visualization.
+The Open Claude UI frontend provides a real-time chat interface for interacting with autonomous AI coding agents. The clean design is inspired by the Claude web interface. Built with React and TypeScript, it features optimized streaming, virtual scrolling, and rich tool visualization.
 
 ## Features
 
@@ -45,7 +45,7 @@ The BreezeRun frontend provides a real-time chat interface for interacting with 
 
 ### Agent Configuration
 - LLM provider selection (OpenAI, Anthropic, Google, Azure)
-- Model picker with latest options (GPT-4o, Claude Sonnet 4, etc.)
+- Model picker with latest options from each provider
 - Tool enablement toggles
 - Custom system instructions
 - Pre-built agent templates
@@ -136,7 +136,7 @@ const {
 
 Features:
 - Per-block state management
-- 30ms flush interval (ChatGPT-like performance)
+- 30ms flush interval for smooth streaming
 - Smart content merging with API data
 - Binary data and image handling
 - Automatic reconnection

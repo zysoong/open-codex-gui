@@ -1,5 +1,5 @@
 """
-Pytest configuration and fixtures for the BreezeRun backend test suite.
+Pytest configuration and fixtures for the Open Claude UI backend test suite.
 """
 
 import os

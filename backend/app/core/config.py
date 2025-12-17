@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     )
 
     # Database
-    database_url: str = "sqlite+aiosqlite:///./data/breezerun.db"
+    database_url: str = "sqlite+aiosqlite:///./data/open-claude-ui.db"
 
     # Server
     host: str = "127.0.0.1"

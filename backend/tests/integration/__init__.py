@@ -1,1 +1,1 @@
-"""Integration tests for the BreezeRun backend."""
+"""Integration tests for the Open Claude UI backend."""
